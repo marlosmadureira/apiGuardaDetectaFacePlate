@@ -36,8 +36,8 @@ services:
       postgres:
         condition: service_healthy
     # Câmera: desconectada por padrão. Para usar, descomente:
-    # devices:
-    #   - /dev/video0:/dev/video0
+    devices:
+       - /dev/video0:/dev/video0
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s

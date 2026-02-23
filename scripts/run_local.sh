@@ -10,6 +10,18 @@ PYTHON="${PYTHON:-python3}"
 echo "=== Guarda - Execução local (sem venv) ==="
 echo ""
 
+# 0) CMake é necessário para compilar dlib (face_recognition)
+if ! command -v cmake >/dev/null 2>&1; then
+  echo "Erro: CMake não encontrado. O pacote face_recognition (dlib) precisa do CMake para compilar."
+  echo ""
+  echo "No Ubuntu/Debian, instale com:"
+  echo "  sudo apt update"
+  echo "  sudo apt install cmake build-essential"
+  echo ""
+  echo "Depois rode este script de novo."
+  exit 1
+fi
+
 # 1) Dependências (pip --user para não precisar de venv nem sudo)
 echo "[1/3] Verificando dependências..."
 "$PYTHON" -m pip install --user --upgrade pip -q

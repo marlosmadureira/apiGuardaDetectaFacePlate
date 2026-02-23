@@ -13,6 +13,7 @@ Tudo rodando em **Docker** para teste local; produção pode ser configurada dep
 
 - Docker e Docker Compose (para rodar tudo em containers)
 - Python 3.10+ e pip (para execução local da API; o script não usa venv)
+- CMake e build-essential (para compilar `dlib`/`face_recognition`). No Ubuntu/Debian: `sudo apt install cmake build-essential`
 - Câmera (para uso com câmera no container: Linux com `/dev/video0`)
 
 ---
