@@ -12,20 +12,20 @@ Tudo rodando em **Docker** para teste local; produção pode ser configurada dep
 ## Requisitos
 
 - Docker e Docker Compose (para rodar tudo em containers)
-- Python 3.10+ e PostgreSQL (para execução local da API)
+- Python 3.10+ e pip (para execução local da API; o script não usa venv)
 - Câmera (para uso com câmera no container: Linux com `/dev/video0`)
 
 ---
 
 ## Execução local (API na máquina, PostgreSQL no Docker ou instalado)
 
-Um único script prepara o ambiente (venv, dependências, `.env`, pasta `data/`), sobe o PostgreSQL via Docker se o projeto tiver `docker-compose.yml` com o serviço `postgres` e inicia a API:
+Um único script instala as dependências (com `pip --user`), cria `.env` e a pasta `data/` se precisar, sobe o PostgreSQL via Docker (se houver no projeto) e inicia a API — sem usar venv:
 
 ```bash
 ./scripts/run_local.sh
 ```
 
-Na primeira execução ele cria o ambiente virtual, instala as dependências e o `.env`; nas seguintes só confere se está tudo ok e sobe a API (e o Postgres no Docker, se estiver parado). Sempre use esse comando para rodar localmente.
+Na primeira execução instala as dependências e cria o `.env`; nas seguintes só confere e sobe a API (e o Postgres no Docker, se estiver parado).
 
 API: **http://localhost:8000** | Docs: **http://localhost:8000/docs**
 
