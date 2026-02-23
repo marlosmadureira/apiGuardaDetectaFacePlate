@@ -19,23 +19,13 @@ Tudo rodando em **Docker** para teste local; produção pode ser configurada dep
 
 ## Execução local (API na máquina, PostgreSQL no Docker ou instalado)
 
-Para deixar o ambiente pronto e rodar a API localmente (venv, dependências, `.env`, diretório de dados):
+Um único script prepara o ambiente (venv, dependências, `.env`, pasta `data/`), sobe o PostgreSQL via Docker se o projeto tiver `docker-compose.yml` com o serviço `postgres` e inicia a API:
 
 ```bash
-./scripts/setup_local.sh
-```
-
-O script cria o ambiente virtual `.venv`, instala as dependências, gera o `.env` (se não existir) com `DATABASE_URL` apontando para `guarda:guarda@localhost:5432/guarda` e cria o diretório `data/`. Depois, suba só o PostgreSQL (se usar Docker) e rode a API:
-
-```bash
-# Opção: PostgreSQL via Docker
-docker compose up -d postgres
-
-# Rodar a API
 ./scripts/run_local.sh
 ```
 
-Ou manualmente: `source .venv/bin/activate` e `uvicorn main:app --reload --host 0.0.0.0 --port 8000`.
+Na primeira execução ele cria o ambiente virtual, instala as dependências e o `.env`; nas seguintes só confere se está tudo ok e sobe a API (e o Postgres no Docker, se estiver parado). Sempre use esse comando para rodar localmente.
 
 API: **http://localhost:8000** | Docs: **http://localhost:8000/docs**
 
