@@ -1,0 +1,50 @@
+# Guarda - Piloto local (teste com câmera e API)
+# Banco: PostgreSQL. Câmera deixada desconectada; para usar no Linux, descomente "devices" abaixo.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: guarda-postgres
+    environment:
+      POSTGRES_USER: guarda
+      POSTGRES_PASSWORD: guarda
+      POSTGRES_DB: guarda
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U guarda -d guarda"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  app:
+    build: .
+    container_name: guarda-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://guarda:guarda@postgres:5432/guarda
+      - CAMERA_INDEX=0
+      # Encaminhar placa para servidor externo (opcional)
+      # - PLATE_FORWARD_URL=https://seu-servidor.com/placas
+      # - PLATE_FORWARD_ENABLED=true
+      - FACE_TOLERANCE=0.6
+    volumes:
+      - guarda_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Câmera: desconectada por padrão. Para usar, descomente:
+    # devices:
+    #   - /dev/video0:/dev/video0
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  guarda_data:
