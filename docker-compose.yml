@@ -5,6 +5,8 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: guarda-postgres
+    ports:
+      - "5432:5432"
     environment:
       POSTGRES_USER: guarda
       POSTGRES_PASSWORD: guarda
