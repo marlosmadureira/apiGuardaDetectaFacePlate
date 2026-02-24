@@ -83,10 +83,12 @@ Se a câmera não for detectada, use os endpoints que aceitam **upload de imagem
 
 ### 3) Controle de acesso
 
-- **Autorização** é sempre de um tipo por registro: **entrada a pé** (só pessoa) ou **entrada com veículo** (pessoa + veículo). Nunca “veículo e pessoa” obrigatórios juntos.
-  - **Entrada a pé:** autorização com `vehicle_id = null` → verificação apenas **facial**.
-  - **Entrada com veículo:** autorização com `vehicle_id` preenchido → verificação **facial + placa** (a captura já faz a leitura da placa).
-- A **verificação de acesso** recebe rosto (e opcionalmente placa): só facial para entrada a pé; facial + placa para entrada com veículo.
+- **Tipos de autorização** (um registro = um tipo):
+  - **Pedestre:** pessoa com `vehicle_id = null` → entra só a pé (verificação **facial**).
+  - **Veículo:** pessoa + `vehicle_id` → entra com aquele veículo (verificação **facial + placa**).
+  - **Pedestre e Veículo:** a mesma pessoa pode entrar a pé ou de carro → cadastre **duas** autorizações (uma pedestre, uma com veículo).
+- Use a tela **http://localhost:8000/autorizacoes** para cadastrar por tipo (Pedestre / Veículo / Pedestre e Veículo).
+- A **verificação de acesso** usa só rosto para pedestre; rosto + placa para veículo.
 
 ---
 

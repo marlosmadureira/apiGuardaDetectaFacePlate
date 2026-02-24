@@ -20,18 +20,20 @@ async def create_authorization(
     data: AuthorizationCreate, db: AsyncSession = Depends(get_db)
 ):
     """
-    Cria autorização de entrada. Envie:
-    - person_id + vehicle_id = null → entrada a pé (só facial).
-    - person_id + vehicle_id → entrada com veículo (facial + placa).
+    Cria autorização. Tipos:
+    - Pedestre: person_id apenas (vehicle_id null ou omitido).
+    - Veículo: person_id + vehicle_id (entrada com aquele veículo).
+    - Pedestre e Veículo: crie duas autorizações (uma pedestre, uma com vehicle_id).
     """
     person = await db.get(Person, data.person_id)
     if person is None:
         raise HTTPException(status_code=404, detail="Pessoa não encontrada.")
-    if data.vehicle_id is not None:
-        vehicle = await db.get(Vehicle, data.vehicle_id)
+    vehicle_id = data.vehicle_id if data.vehicle_id else None
+    if vehicle_id is not None:
+        vehicle = await db.get(Vehicle, vehicle_id)
         if vehicle is None:
             raise HTTPException(status_code=404, detail="Veículo não encontrado.")
-    auth = Authorization(person_id=data.person_id, vehicle_id=data.vehicle_id)
+    auth = Authorization(person_id=data.person_id, vehicle_id=vehicle_id)
     db.add(auth)
     await db.commit()
     await db.refresh(auth)

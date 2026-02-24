@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Guarda – Autorizações</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; padding: 24px; background: #1a1b26; color: #c0caf5; min-height: 100vh; }
+    .container { max-width: 640px; margin: 0 auto; }
+    h1 { color: #7aa2f7; font-size: 1.5rem; margin-bottom: 8px; }
+    .sub { color: #565f89; font-size: 0.9rem; margin-bottom: 24px; }
+    .card { background: #24283b; border-radius: 12px; padding: 24px; margin-bottom: 20px; }
+    label { display: block; margin-bottom: 6px; color: #a9b1d6; font-size: 0.9rem; }
+    select, input { width: 100%; padding: 10px 12px; border: 1px solid #414868; border-radius: 8px; background: #1a1b26; color: #c0caf5; font-size: 1rem; margin-bottom: 16px; }
+    .tipo-group { margin-bottom: 20px; }
+    .tipo-group label { display: inline-flex; align-items: center; margin-right: 20px; cursor: pointer; }
+    .tipo-group input[type="radio"] { width: auto; margin: 0 8px 0 0; }
+    button { padding: 12px 24px; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; background: #7aa2f7; color: #1a1b26; }
+    button:hover { opacity: 0.9; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .msg { padding: 12px; border-radius: 8px; margin-top: 12px; font-size: 0.95rem; }
+    .msg.success { background: #1f3322; color: #9ece6a; }
+    .msg.error { background: #2d202a; color: #f7768e; }
+    .lista { margin-top: 16px; }
+    .lista h3 { color: #7aa2f7; font-size: 1rem; margin-bottom: 12px; }
+    .item { padding: 10px 12px; background: #1a1b26; border-radius: 8px; margin-bottom: 8px; font-size: 0.9rem; }
+    .item.pedestre { border-left: 4px solid #9ece6a; }
+    .item.veiculo { border-left: 4px solid #7aa2f7; }
+    a { color: #7aa2f7; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Guarda – Autorizações de entrada</h1>
+    <p class="sub">Cadastre por tipo: <strong>Pedestre</strong> (só a pé), <strong>Veículo</strong> (pessoa + placa) ou <strong>Pedestre e Veículo</strong> (cria as duas). <a href="/">Cadastro de rosto</a> · <a href="/verificar">Verificação</a></p>
+
+    <div class="card">
+      <h2 style="font-size:1.1rem; margin-bottom:16px;">Nova autorização</h2>
+      <label>Pessoa</label>
+      <select id="personSelect">
+        <option value="">Carregando...</option>
+      </select>
+      <label>Tipo</label>
+      <div class="tipo-group">
+        <label><input type="radio" name="tipo" value="pedestre" checked> Pedestre (entrada a pé)</label>
+        <label><input type="radio" name="tipo" value="veiculo"> Veículo (pessoa + placa)</label>
+        <label><input type="radio" name="tipo" value="ambos"> Pedestre e Veículo</label>
+      </div>
+      <label id="vehicleLabel" style="display:none;">Veículo</label>
+      <select id="vehicleSelect" style="display:none;">
+        <option value="">-- Selecione o veículo --</option>
+      </select>
+      <button type="button" id="btnCreate">Cadastrar autorização</button>
+      <div id="msg"></div>
+    </div>
+
+    <div class="card">
+      <h3 class="lista">Autorizações cadastradas</h3>
+      <div id="list"></div>
+    </div>
+  </div>
+
+  <script>
+    var API_BASE = '';
+    var persons = [];
+    var vehicles = [];
+
+    var personSelect = document.getElementById('personSelect');
+    var vehicleSelect = document.getElementById('vehicleSelect');
+    var vehicleLabel = document.getElementById('vehicleLabel');
+    var btnCreate = document.getElementById('btnCreate');
+    var msg = document.getElementById('msg');
+    var list = document.getElementById('list');
+
+    document.querySelectorAll('input[name="tipo"]').forEach(function(r) {
+      r.addEventListener('change', function() {
+        var show = (r.value === 'veiculo' || r.value === 'ambos');
+        vehicleLabel.style.display = show ? 'block' : 'none';
+        vehicleSelect.style.display = show ? 'block' : 'none';
+      });
+    });
+
+    function loadJson(url) {
+      return fetch(API_BASE + url).then(function(r) {
+        if (!r.ok) throw new Error(r.status);
+        return r.json();
+      });
+    }
+
+    function loadPersons() {
+      return loadJson('/persons').then(function(arr) {
+        persons = arr;
+        personSelect.innerHTML = '<option value="">-- Selecione a pessoa --</option>';
+        arr.forEach(function(p) {
+          personSelect.appendChild(new Option(p.name + (p.document ? ' (' + p.document + ')' : ''), String(p.id)));
+        });
+      }).catch(function() { personSelect.innerHTML = '<option value="">Erro ao carregar</option>'; });
+    }
+
+    function loadVehicles() {
+      return loadJson('/vehicles').then(function(arr) {
+        vehicles = arr;
+        vehicleSelect.innerHTML = '<option value="">-- Selecione o veículo --</option>';
+        arr.forEach(function(v) {
+          vehicleSelect.appendChild(new Option(v.plate + (v.description ? ' – ' + v.description : ''), String(v.id)));
+        });
+      }).catch(function() { vehicleSelect.innerHTML = '<option value="">Erro ao carregar</option>'; });
+    }
+
+    function loadAuthorizations() {
+      loadJson('/authorizations').then(function(arr) {
+        list.innerHTML = '';
+        if (arr.length === 0) { list.innerHTML = '<p style="color:#565f89;">Nenhuma autorização ainda.</p>'; return; }
+        arr.forEach(function(a) {
+          var person = persons.find(function(p) { return p.id === a.person_id; });
+          var vehicle = vehicles.find(function(v) { return v.id === a.vehicle_id; });
+          var nome = person ? person.name : 'ID ' + a.person_id;
+          var tipo = a.vehicle_id == null ? 'pedestre' : 'veiculo';
+          var texto = tipo === 'pedestre' ? 'Pedestre: ' + nome : 'Veículo: ' + nome + (vehicle ? ' – ' + vehicle.plate : '');
+          var div = document.createElement('div');
+          div.className = 'item ' + tipo;
+          div.textContent = texto;
+          list.appendChild(div);
+        });
+      }).catch(function() { list.innerHTML = '<p style="color:#f7768e;">Erro ao carregar lista.</p>'; });
+    }
+
+    btnCreate.addEventListener('click', function() {
+      var personId = personSelect.value;
+      if (!personId) { msg.innerHTML = '<div class="msg error">Selecione a pessoa.</div>'; return; }
+      var tipo = document.querySelector('input[name="tipo"]:checked').value;
+      var vehicleId = vehicleSelect.value || null;
+
+      if ((tipo === 'veiculo' || tipo === 'ambos') && !vehicleId) {
+        msg.innerHTML = '<div class="msg error">Selecione o veículo para este tipo.</div>';
+        return;
+      }
+      btnCreate.disabled = true;
+      msg.innerHTML = '';
+
+      function postOne(vid) {
+        var body = { person_id: parseInt(personId, 10) };
+        if (vid) body.vehicle_id = parseInt(vid, 10);
+        return fetch(API_BASE + '/authorizations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        }).then(function(r) {
+          if (!r.ok) return r.json().then(function(e) { throw new Error(e.detail || r.status); });
+          return r.json();
+        });
+      }
+
+      var promises = [];
+      if (tipo === 'pedestre') promises.push(postOne(null));
+      else if (tipo === 'veiculo') promises.push(postOne(vehicleId));
+      else { promises.push(postOne(null)); promises.push(postOne(vehicleId)); }
+
+      Promise.all(promises)
+        .then(function() {
+          msg.innerHTML = '<div class="msg success">' + (tipo === 'ambos' ? 'Autorizações (pedestre e veículo) cadastradas.' : 'Autorização cadastrada.') + '</div>';
+          loadAuthorizations();
+        })
+        .catch(function(e) {
+          msg.innerHTML = '<div class="msg error">Erro: ' + (e.message || e) + '</div>';
+        })
+        .finally(function() { btnCreate.disabled = false; });
+    });
+
+    Promise.all([loadPersons(), loadVehicles()]).then(loadAuthorizations);
+    setInterval(loadAuthorizations, 8000);
+  </script>
+</body>
+</html>

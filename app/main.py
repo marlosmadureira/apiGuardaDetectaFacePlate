@@ -77,6 +77,15 @@ async def verificar_page():
     raise HTTPException(status_code=404, detail="Página não encontrada")
 
 
+@app.get("/autorizacoes")
+async def autorizacoes_page():
+    """Tela de cadastro de autorizações: Pedestre, Veículo ou Pedestre e Veículo."""
+    path = STATIC_DIR / "autorizacoes.html"
+    if path.is_file():
+        return FileResponse(path)
+    raise HTTPException(status_code=404, detail="Página não encontrada")
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
