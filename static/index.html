@@ -128,7 +128,6 @@
       <div class="card step">
       <div class="step-title">2. Câmera ao vivo e captura</div>
       <p style="color:#a9b1d6; font-size:0.9rem; margin-bottom:12px;">Posicione o rosto no quadro e clique em <strong>Capturar rosto</strong>. A foto será enviada para a API, que extrai o rosto e grava o cálculo (embedding) para futura verificação.</p>
-      <p id="cameraHint" style="display:none; color:#f7768e; font-size:0.85rem; margin-bottom:12px;"></p>
       <div id="videoWrap">
         <video id="video" autoplay playsinline muted></video>
         <div class="preview-label" id="previewLabel">Iniciar câmera</div>
@@ -139,7 +138,6 @@
         <button type="button" class="btn-success" id="btnCapture" disabled>Capturar rosto</button>
         <button type="button" class="btn-secondary" id="btnStopCamera" style="display:none;">Parar câmera</button>
       </div>
-      <p style="color:#565f89; font-size:0.8rem; margin-top:8px;">Ao clicar em <strong>Iniciar câmera</strong>, o navegador vai pedir permissão para usar a câmera — aceite para continuar.</p>
       <div id="captureMsg"></div>
       <div id="photoResult" style="display:none;">
         <p style="margin-top:12px;">Foto cadastrada (usada para futura verificação):</p>
@@ -169,24 +167,18 @@
     const photoPreview = document.getElementById('photoPreview');
 
     async function loadPersons() {
-      personSelect.innerHTML = '<option value="">Carregando...</option>';
       try {
-        var ctrl = new AbortController();
-        var t = setTimeout(function() { ctrl.abort(); }, 15000);
-        var r = await fetch(API_BASE + '/persons', { signal: ctrl.signal });
-        clearTimeout(t);
-        if (!r.ok) throw new Error('API respondeu com ' + r.status + '. Confira se o servidor está rodando (http://localhost:8000).');
-        var data = await r.json();
-        var list = Array.isArray(data) ? data : [];
+        const r = await fetch(API_BASE + '/persons');
+        if (!r.ok) throw new Error('Falha ao carregar pessoas');
+        const list = await r.json();
         personSelect.innerHTML = '';
         personSelect.appendChild(new Option('-- Selecione uma pessoa --', ''));
-        list.forEach(function(p) {
+        list.forEach(p => {
           personSelect.appendChild(new Option(p.name + (p.document ? ' (' + p.document + ')' : ''), String(p.id)));
         });
-        if (list.length === 0) personSelect.appendChild(new Option('Nenhuma pessoa cadastrada', ''));
+        if (list.length === 0) personSelect.innerHTML = '<option value="">Nenhuma pessoa cadastrada</option>';
       } catch (e) {
-        var msg = e.message || (e.name === 'AbortError' ? 'Demorou demais. Verifique se a API está em http://localhost:8000.' : 'Erro ao carregar.');
-        personSelect.innerHTML = '<option value="">' + msg + '</option>';
+        personSelect.innerHTML = '<option value="">Erro: ' + e.message + '</option>';
       }
     }
 
@@ -231,38 +223,26 @@
       el.innerHTML = '<div class="msg ' + type + '">' + text + '</div>';
     }
 
-    function getMediaDevices() {
+    function getUserMediaPromise(constraints) {
       if (navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function')
-        return navigator.mediaDevices;
-      var legacy = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
-      if (legacy) {
-        return {
-          getUserMedia: function(c) {
-            return new Promise(function(resolve, reject) {
-              legacy.call(navigator, c, resolve, reject);
-            });
-          }
-        };
-      return null;
+        return navigator.mediaDevices.getUserMedia(constraints);
+      var fn = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+      if (!fn) return Promise.reject(new Error('Câmera não disponível'));
+      return new Promise(function(ok, err) { fn.call(navigator, constraints, ok, err); });
     }
 
     btnStartCamera.addEventListener('click', async () => {
-      var media = getMediaDevices();
-      if (!media) {
-        previewLabel.textContent = 'Câmera não disponível neste contexto';
-        showMsg(captureMsg, 'A câmera só funciona quando a página é aberta pelo servidor (ex.: http://localhost:8000). Não abra o arquivo HTML direto (file://). Se já estiver em localhost, use HTTPS ou verifique se o navegador permite acesso à câmera.', 'error');
-        return;
-      }
+      previewLabel.textContent = 'Abrindo câmera...';
       try {
-        stream = await media.getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 } });
+        stream = await getUserMediaPromise({ video: { facingMode: 'user', width: 640, height: 480 } });
         video.srcObject = stream;
         previewLabel.textContent = 'Ao vivo – posicione o rosto e clique em Capturar rosto';
         btnStartCamera.style.display = 'none';
         btnStopCamera.style.display = 'inline-block';
         btnCapture.disabled = !currentPersonId;
       } catch (e) {
-        previewLabel.textContent = 'Erro ao acessar câmera: ' + (e.message || e.name || 'Erro');
-        showMsg(captureMsg, 'Permita o uso da câmera nas configurações do navegador e recarregue. Se o erro continuar, abra a página em http://localhost:8000 (não como arquivo local).', 'error');
+        previewLabel.textContent = 'Erro ao acessar câmera';
+        showMsg(captureMsg, 'Não foi possível acessar a câmera. Abra a página em http://localhost:8000 (não como arquivo) e aceite a permissão quando o navegador pedir. Erro: ' + (e.message || e.name), 'error');
       }
     });
 
@@ -324,25 +304,7 @@
       }, 'image/jpeg', 0.92);
     });
 
-    // Inicialização: carregar pessoas e aviso de câmera
-    (function init() {
-      try {
-        loadPersons();
-        var hint = document.getElementById('cameraHint');
-        if (hint) {
-          var isSecure = (location.protocol === 'https:') || (location.hostname === 'localhost') || (location.hostname === '127.0.0.1');
-          if (!isSecure || !navigator.mediaDevices) {
-            hint.style.display = 'block';
-            hint.textContent = 'Para a câmera funcionar, abra esta página pelo servidor: ' + (location.protocol === 'file:' ? 'http://localhost:8000' : 'use http://localhost:8000 ou HTTPS.');
-          }
-        }
-      } catch (err) {
-        console.error(err);
-        var sel = document.getElementById('personSelect');
-        if (sel) sel.innerHTML = '<option value="">Erro ao iniciar. Veja o console (F12).</option>';
-      }
-    }
-    })();
+    loadPersons();
   </script>
 </body>
 </html>
