@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Guarda – Cadastro de Placas</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      margin: 0;
+      padding: 24px;
+      background: #1a1b26;
+      color: #c0caf5;
+      min-height: 100vh;
+    }
+    .container { max-width: 720px; margin: 0 auto; }
+    h1 { color: #7aa2f7; font-size: 1.5rem; margin-bottom: 8px; }
+    .sub { color: #565f89; font-size: 0.9rem; margin-bottom: 24px; }
+    .card {
+      background: #24283b;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+    label { display: block; margin-bottom: 6px; color: #a9b1d6; font-size: 0.9rem; }
+    input[type="text"] {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #414868;
+      border-radius: 8px;
+      background: #1a1b26;
+      color: #c0caf5;
+      font-size: 1rem;
+      margin-bottom: 16px;
+    }
+    input:focus { outline: none; border-color: #7aa2f7; }
+    button {
+      padding: 12px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    button:hover { opacity: 0.9; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary { background: #7aa2f7; color: #1a1b26; }
+    .btn-success { background: #9ece6a; color: #1a1b26; }
+    .btn-secondary { background: #414868; color: #c0caf5; }
+    .actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
+    .msg { padding: 12px; border-radius: 8px; margin-top: 12px; font-size: 0.95rem; }
+    .msg.success { background: #1f3322; color: #9ece6a; }
+    .msg.error { background: #2d202a; color: #f7768e; }
+    .msg.info { background: #1e2230; color: #7aa2f7; }
+    .lista h3 { color: #7aa2f7; font-size: 1rem; margin-bottom: 12px; }
+    .item {
+      padding: 10px 12px;
+      background: #1a1b26;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      font-size: 0.9rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .item .plate { font-weight: 700; color: #9ece6a; }
+    .item .btn-del { margin-left: auto; padding: 6px 12px; font-size: 0.85rem; background: #f7768e; color: #1a1b26; border: none; border-radius: 6px; cursor: pointer; }
+    .item .btn-del:hover { opacity: 0.9; }
+    a { color: #7aa2f7; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Guarda – Cadastro de Placas (Veículos)</h1>
+    <p class="sub">Cadastre veículos pela placa (digite manualmente). <a href="/">Cadastro de rosto</a> · <a href="/autorizacoes">Autorizações</a> · <a href="/verificar">Verificação ao vivo</a></p>
+
+    <div class="card">
+      <h2 style="font-size:1.1rem; margin-bottom:16px;">Novo veículo</h2>
+      <label>Placa</label>
+      <input type="text" id="plateInput" placeholder="Ex: ABC1D23 ou ABC-1234" maxlength="20" style="text-transform:uppercase;">
+      <label>Descrição (opcional)</label>
+      <input type="text" id="descInput" placeholder="Ex: Cor, modelo">
+      <div class="actions">
+        <button type="button" class="btn-success" id="btnRegister">Cadastrar veículo</button>
+      </div>
+      <div id="formMsg"></div>
+    </div>
+
+    <div class="card">
+      <h3 class="lista">Veículos cadastrados</h3>
+      <div id="vehicleList">Carregando...</div>
+    </div>
+  </div>
+
+  <script>
+    var API_BASE = '';
+    var plateInput = document.getElementById('plateInput');
+    var descInput = document.getElementById('descInput');
+    var btnRegister = document.getElementById('btnRegister');
+    var formMsg = document.getElementById('formMsg');
+    var vehicleList = document.getElementById('vehicleList');
+
+    function showFormMsg(text, type) {
+      formMsg.innerHTML = '<div class="msg ' + (type || 'info') + '">' + text + '</div>';
+    }
+
+    function loadVehicles() {
+      fetch(API_BASE + '/vehicles')
+        .then(function(r) { return r.ok ? r.json() : Promise.reject(new Error(r.statusText)); })
+        .then(function(arr) {
+          if (arr.length === 0) {
+            vehicleList.innerHTML = '<p style="color:#565f89;">Nenhum veículo cadastrado.</p>';
+            return;
+          }
+          vehicleList.innerHTML = arr.map(function(v) {
+            return '<div class="item" data-id="' + v.id + '">' +
+              '<span class="plate">' + v.plate + '</span>' + (v.description ? '<span>' + v.description + '</span>' : '') +
+              '<button type="button" class="btn-del" data-id="' + v.id + '">Excluir</button></div>';
+          }).join('');
+          vehicleList.querySelectorAll('.btn-del').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+              var id = btn.getAttribute('data-id');
+              if (!id || !confirm('Excluir este veículo? As autorizações vinculadas serão desativadas.')) return;
+              fetch(API_BASE + '/vehicles/' + id, { method: 'DELETE' })
+                .then(function(r) {
+                  if (!r.ok) return Promise.reject(new Error(r.statusText));
+                  showFormMsg('Veículo excluído.', 'success');
+                  loadVehicles();
+                })
+                .catch(function(e) { showFormMsg('Erro: ' + (e.message || 'Não foi possível excluir.'), 'error'); });
+            });
+          });
+        })
+        .catch(function() { vehicleList.innerHTML = '<p style="color:#f7768e;">Erro ao carregar veículos.</p>'; });
+    }
+
+    btnRegister.addEventListener('click', function() {
+      var plate = plateInput.value.trim().toUpperCase();
+      if (!plate || plate.length < 6) {
+        showFormMsg('Digite uma placa válida (mín. 6 caracteres).', 'error');
+        return;
+      }
+      btnRegister.disabled = true;
+      fetch(API_BASE + '/vehicles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plate: plate, description: descInput.value.trim() || null }),
+      })
+        .then(function(r) {
+          if (!r.ok) return r.json().then(function(j) { throw new Error(j.detail || r.statusText); });
+          return r.json();
+        })
+        .then(function(v) {
+          showFormMsg('Veículo ' + v.plate + ' cadastrado.', 'success');
+          plateInput.value = '';
+          descInput.value = '';
+          loadVehicles();
+        })
+        .catch(function(e) {
+          showFormMsg('Erro: ' + (e.message || 'Não foi possível cadastrar.'), 'error');
+        })
+        .finally(function() { btnRegister.disabled = false; });
+    });
+
+    loadVehicles();
+  </script>
+</body>
+</html>
