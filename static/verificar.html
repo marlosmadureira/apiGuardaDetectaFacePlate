@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Guarda – Verificação de Acesso</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #0f0f14;
+      color: #c0caf5;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    h1 { color: #7aa2f7; font-size: 1.4rem; margin-bottom: 8px; }
+    .sub { color: #565f89; font-size: 0.9rem; margin-bottom: 20px; }
+    .camera-wrap {
+      position: relative;
+      background: #000;
+      border-radius: 16px;
+      overflow: hidden;
+      width: 100%;
+      max-width: 720px;
+      aspect-ratio: 4/3;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    #video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    #canvas { display: none; }
+    .status-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+    .status-box {
+      padding: 24px 48px;
+      border-radius: 16px;
+      font-size: 1.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(8px);
+    }
+    .status-box.autorizado {
+      color: #9ece6a;
+      border: 3px solid #9ece6a;
+    }
+    .status-box.nao-autorizado {
+      color: #f7768e;
+      border: 3px solid #f7768e;
+    }
+    .status-box.verificando {
+      color: #7aa2f7;
+      border: 3px solid #7aa2f7;
+      font-size: 1.2rem;
+    }
+    .person-name { font-size: 1rem; margin-top: 8px; text-transform: none; letter-spacing: 0; opacity: 0.95; }
+    .controls {
+      margin-top: 20px;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    button {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      background: #414868;
+      color: #c0caf5;
+    }
+    button:hover { opacity: 0.9; }
+    button.primary { background: #7aa2f7; color: #1a1b26; }
+    button.danger { background: #f7768e; color: #1a1b26; }
+    a { color: #7aa2f7; }
+    .hint { color: #565f89; font-size: 0.85rem; margin-top: 16px; text-align: center; max-width: 480px; }
+    #chromeHint { display: none; color: #f7768e; font-size: 0.85rem; margin-bottom: 12px; background: #2d202a; padding: 10px; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Guarda – Verificação de Acesso</h1>
+  <p class="sub">Câmera ao vivo: o sistema verifica se o rosto está autorizado a entrar.</p>
+  <p id="chromeHint">No Chrome use <a href="http://localhost:8000/verificar">http://localhost:8000/verificar</a> (não 0.0.0.0:8000).</p>
+
+  <div class="camera-wrap">
+    <video id="video" autoplay playsinline muted></video>
+    <div class="status-overlay">
+      <div id="statusBox" class="status-box verificando">Iniciando...</div>
+    </div>
+  </div>
+  <canvas id="canvas"></canvas>
+
+  <div class="controls">
+    <button type="button" class="primary" id="btnStart">Iniciar câmera</button>
+    <button type="button" id="btnStop" style="display:none;">Parar</button>
+  </div>
+  <p class="hint">A verificação é feita a cada 2 segundos. Quem tem autorização de entrada a pé aparece como "Autorizado".</p>
+  <p class="hint"><a href="/">← Voltar ao cadastro de rosto</a></p>
+
+  <script>
+    var API_BASE = '';
+    var stream = null;
+    var intervalId = null;
+    var isChecking = false;
+
+    var video = document.getElementById('video');
+    var canvas = document.getElementById('canvas');
+    var statusBox = document.getElementById('statusBox');
+
+    function getUserMediaPromise(constraints) {
+      if (navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function')
+        return navigator.mediaDevices.getUserMedia(constraints);
+      var fn = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+      if (!fn) return Promise.reject(new Error('Câmera não disponível'));
+      return new Promise(function(ok, err) { fn.call(navigator, constraints, ok, err); });
+    }
+
+    function setStatus(klass, text, sub) {
+      statusBox.className = 'status-box ' + klass;
+      statusBox.innerHTML = text + (sub ? '<div class="person-name">' + sub + '</div>' : '');
+    }
+
+    function checkFace() {
+      if (!stream || isChecking || !video.videoWidth) return;
+      isChecking = true;
+      setStatus('verificando', 'Verificando...', '');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      var ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0);
+      canvas.toBlob(function(blob) {
+        if (!blob) { isChecking = false; setStatus('nao-autorizado', 'Erro', 'Sem imagem'); return; }
+        var form = new FormData();
+        form.append('face_image', blob, 'frame.jpg');
+        fetch(API_BASE + '/access/check', { method: 'POST', body: form })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.allowed) {
+              setStatus('autorizado', 'Autorizado', data.person_name || '');
+            } else {
+              setStatus('nao-autorizado', 'Não autorizado', data.message || '');
+            }
+          })
+          .catch(function(e) {
+            setStatus('nao-autorizado', 'Erro', e.message || 'Sem resposta');
+          })
+          .finally(function() { isChecking = false; });
+      }, 'image/jpeg', 0.85);
+    }
+
+    document.getElementById('btnStart').addEventListener('click', function() {
+      setStatus('verificando', 'Abrindo câmera...', '');
+      getUserMediaPromise({ video: { facingMode: 'user', width: 640, height: 480 } })
+        .then(function(s) {
+          stream = s;
+          video.srcObject = stream;
+          setStatus('verificando', 'Verificando...', 'Aguardando rosto');
+          document.getElementById('btnStart').style.display = 'none';
+          document.getElementById('btnStop').style.display = 'inline-block';
+          intervalId = setInterval(checkFace, 2000);
+        })
+        .catch(function(e) {
+          setStatus('nao-autorizado', 'Erro câmera', e.message || '');
+          var h = document.getElementById('chromeHint');
+          if (h) h.style.display = 'block';
+        });
+    });
+
+    document.getElementById('btnStop').addEventListener('click', function() {
+      if (intervalId) { clearInterval(intervalId); intervalId = null; }
+      if (stream) { stream.getTracks().forEach(function(t) { t.stop(); }); stream = null; }
+      video.srcObject = null;
+      setStatus('verificando', 'Iniciando...', '');
+      document.getElementById('btnStart').style.display = 'inline-block';
+      document.getElementById('btnStop').style.display = 'none';
+    });
+
+    if (location.hostname === '0.0.0.0') {
+      var h = document.getElementById('chromeHint');
+      if (h) h.style.display = 'block';
+    }
+  </script>
+</body>
+</html>

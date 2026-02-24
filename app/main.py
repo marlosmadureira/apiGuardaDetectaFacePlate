@@ -4,7 +4,7 @@ Piloto: reconhecimento de placa (Brasil/Mercosul) + reconhecimento facial.
 """
 from pathlib import Path
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
@@ -66,6 +66,15 @@ async def root():
         "docs": "/docs",
         "health": "/health",
     }
+
+
+@app.get("/verificar")
+async def verificar_page():
+    """Tela de verificação de acesso: câmera ao vivo e indicação se a pessoa está autorizada."""
+    path = STATIC_DIR / "verificar.html"
+    if path.is_file():
+        return FileResponse(path)
+    raise HTTPException(status_code=404, detail="Página não encontrada")
 
 
 @app.get("/health")
