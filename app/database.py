@@ -1,4 +1,5 @@
 """Sessão e inicialização do banco de dados."""
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 from .config import get_settings
@@ -28,3 +29,11 @@ async def init_db():
     from . import models  # noqa: F401
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Migração: garantir que face_embedding aceita NULL (evita 500 ao criar person sem rosto)
+        try:
+            await conn.execute(text(
+                "ALTER TABLE persons ALTER COLUMN face_embedding DROP NOT NULL"
+            ))
+        except Exception as e:
+            if "already nullable" not in str(e).lower():
+                raise

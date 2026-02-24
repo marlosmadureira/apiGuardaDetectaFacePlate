@@ -1,9 +1,12 @@
 """
 Rotas de reconhecimento facial: cadastro (crop + embedding) e verificação (comparação).
 """
+import os
+import time
 import cv2
 import numpy as np
 from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -20,6 +23,22 @@ from app.face_service import (
 from app.schemas import FaceRegisterResponse, FaceVerifyResponse
 
 router = APIRouter(prefix="/face", tags=["Reconhecimento facial"])
+
+
+def _capture_frame_from_camera(camera_index: int, warmup_seconds: float = 1.0):
+    """Abre a câmera, espera um pouco para ajuste de luz e foco, e retorna um frame."""
+    cap = cv2.VideoCapture(camera_index)
+    if not cap.isOpened():
+        return None, None
+    try:
+        # Descarta alguns frames e dá tempo da câmera ajustar
+        for _ in range(5):
+            cap.read()
+        time.sleep(warmup_seconds)
+        ret, frame = cap.read()
+        return ret, frame
+    finally:
+        cap.release()
 
 
 def _decode_image(file_bytes: bytes) -> np.ndarray:
@@ -57,15 +76,17 @@ async def register_face(
         )
 
     result.face_embedding = _embedding_to_str(embedding)
-    # Opcional: salvar crop em disco (ex.: uploads/faces/)
-    # result.face_photo_path = save_crop(crop, "uploads/faces", prefix=str(person_id))
+    settings = get_settings()
+    photo_path = save_crop(crop, settings.face_photos_dir, prefix=str(person_id))
+    if photo_path:
+        result.face_photo_path = photo_path
     await db.commit()
     await db.refresh(result)
 
     return FaceRegisterResponse(
         person_id=result.id,
         name=result.name,
-        message="Rosto cadastrado com sucesso. Embedding armazenado para comparação.",
+        message="Rosto cadastrado com sucesso. Embedding e foto armazenados para comparação.",
     )
 
 
@@ -125,19 +146,16 @@ async def register_face_from_camera(
 ):
     """
     Captura um frame da câmera e cadastra o rosto para a pessoa informada.
+    Salva a foto do rosto para consultas futuras (GET /face/photo/{person_id}).
     Requer câmera disponível (--device /dev/video0 no Docker).
     """
     settings = get_settings()
-    cap = cv2.VideoCapture(settings.camera_index)
-    if not cap.isOpened():
+    ret, frame = _capture_frame_from_camera(settings.camera_index)
+    if not ret or frame is None:
         raise HTTPException(
             status_code=503,
-            detail="Câmera não disponível. Use /face/register com upload de imagem ou verifique o dispositivo.",
+            detail="Câmera não disponível ou falha ao capturar. Use /face/register com upload de imagem ou verifique o dispositivo.",
         )
-    ret, frame = cap.read()
-    cap.release()
-    if not ret or frame is None:
-        raise HTTPException(status_code=503, detail="Falha ao capturar frame.")
 
     result = await db.get(Person, person_id)
     if result is None:
@@ -147,33 +165,32 @@ async def register_face_from_camera(
     if embedding is None:
         raise HTTPException(
             status_code=400,
-            detail="Nenhum rosto detectado no frame. Tente novamente com o rosto visível.",
+            detail="Nenhum rosto detectado no frame. Posicione o rosto na câmera e tente novamente.",
         )
 
     result.face_embedding = _embedding_to_str(embedding)
+    photo_path = save_crop(crop, settings.face_photos_dir, prefix=str(person_id))
+    if photo_path:
+        result.face_photo_path = photo_path
     await db.commit()
     await db.refresh(result)
 
     return FaceRegisterResponse(
         person_id=result.id,
         name=result.name,
-        message="Rosto cadastrado a partir da câmera com sucesso.",
+        message="Rosto cadastrado a partir da câmera. Foto salva para consultas futuras.",
     )
 
 
 @router.post("/capture/verify", response_model=FaceVerifyResponse)
 async def verify_face_from_camera(db: AsyncSession = Depends(get_db)):
     """
-    Captura um frame da câmera e verifica se o rosto está cadastrado.
+    Captura um frame da câmera e verifica se o rosto corresponde a alguma pessoa cadastrada.
     """
     settings = get_settings()
-    cap = cv2.VideoCapture(settings.camera_index)
-    if not cap.isOpened():
-        raise HTTPException(status_code=503, detail="Câmera não disponível.")
-    ret, frame = cap.read()
-    cap.release()
+    ret, frame = _capture_frame_from_camera(settings.camera_index)
     if not ret or frame is None:
-        raise HTTPException(status_code=503, detail="Falha ao capturar frame.")
+        raise HTTPException(status_code=503, detail="Câmera não disponível ou falha ao capturar.")
 
     embedding = embedding_from_image(frame)
     if embedding is None:
@@ -201,3 +218,23 @@ async def verify_face_from_camera(db: AsyncSession = Depends(get_db)):
         matched=False,
         message="Rosto não reconhecido.",
     )
+
+
+@router.get("/photo/{person_id}", response_class=FileResponse)
+async def get_face_photo(person_id: int, db: AsyncSession = Depends(get_db)):
+    """
+    Retorna a foto do rosto cadastrada para a pessoa (captura salva no cadastro).
+    Útil para consultas futuras e conferência.
+    """
+    person = await db.get(Person, person_id)
+    if person is None or not person.face_photo_path:
+        raise HTTPException(
+            status_code=404,
+            detail="Pessoa não encontrada ou rosto ainda não cadastrado.",
+        )
+    path = person.face_photo_path
+    if not os.path.isabs(path):
+        path = os.path.abspath(path)
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="Arquivo da foto não encontrado.")
+    return FileResponse(path, media_type="image/jpeg")

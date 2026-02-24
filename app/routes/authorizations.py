@@ -1,4 +1,9 @@
-"""CRUD de autorizações: vínculo pessoa + veículo (ou só pessoa)."""
+"""
+CRUD de autorizações. Cada autorização é de um único tipo:
+- Só pessoa (vehicle_id = null): entrada a pé → verificação apenas facial.
+- Pessoa + veículo (vehicle_id preenchido): entrada com veículo → verificação facial + placa.
+Nunca é "veículo e pessoa" obrigatórios juntos; ou entra a pé ou com aquele veículo.
+"""
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -14,10 +19,14 @@ router = APIRouter(prefix="/authorizations", tags=["Autorizações"])
 async def create_authorization(
     data: AuthorizationCreate, db: AsyncSession = Depends(get_db)
 ):
+    """
+    Cria autorização de entrada. Envie:
+    - person_id + vehicle_id = null → entrada a pé (só facial).
+    - person_id + vehicle_id → entrada com veículo (facial + placa).
+    """
     person = await db.get(Person, data.person_id)
     if person is None:
         raise HTTPException(status_code=404, detail="Pessoa não encontrada.")
-    vehicle = None
     if data.vehicle_id is not None:
         vehicle = await db.get(Vehicle, data.vehicle_id)
         if vehicle is None:

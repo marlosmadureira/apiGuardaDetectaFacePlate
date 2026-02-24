@@ -28,6 +28,7 @@ Um único script instala as dependências (com `pip --user`), cria `.env` e a pa
 
 Na primeira execução instala as dependências e cria o `.env`; nas seguintes só confere e sobe a API (e o Postgres no Docker, se estiver parado).
 
+**Interface no navegador:** abra **http://localhost:8000** para cadastrar seu rosto: câmera ao vivo, botão "Capturar rosto" envia a foto para a API (que extrai o rosto e grava o embedding para futura verificação).  
 API: **http://localhost:8000** | Docs: **http://localhost:8000/docs**
 
 ---
@@ -82,8 +83,10 @@ Se a câmera não for detectada, use os endpoints que aceitam **upload de imagem
 
 ### 3) Controle de acesso
 
-- **Pessoas** e **veículos** são cadastrados; **autorizações** vinculam pessoa (e opcionalmente um veículo).
-- O endpoint de **verificação de acesso** usa placa + rosto (por upload ou câmera) e responde se a pessoa e o veículo estão autorizados a entrar.
+- **Autorização** é sempre de um tipo por registro: **entrada a pé** (só pessoa) ou **entrada com veículo** (pessoa + veículo). Nunca “veículo e pessoa” obrigatórios juntos.
+  - **Entrada a pé:** autorização com `vehicle_id = null` → verificação apenas **facial**.
+  - **Entrada com veículo:** autorização com `vehicle_id` preenchido → verificação **facial + placa** (a captura já faz a leitura da placa).
+- A **verificação de acesso** recebe rosto (e opcionalmente placa): só facial para entrada a pé; facial + placa para entrada com veículo.
 
 ---
 
@@ -95,17 +98,18 @@ Se a câmera não for detectada, use os endpoints que aceitam **upload de imagem
 | `/plate/capture` | POST | Captura da câmera, reconhece placa e opcionalmente encaminha |
 | `/plate/capture/upload` | POST | Reconhece placa a partir de imagem enviada |
 | **Rosto** | | |
-| `/face/register/{person_id}` | POST | Cadastra rosto da pessoa (upload de imagem) |
-| `/face/capture/register/{person_id}` | POST | Cadastra rosto usando câmera |
+| `/face/register/{person_id}` | POST | Cadastra rosto da pessoa (upload de imagem); salva foto para consulta |
+| `/face/capture/register/{person_id}` | POST | Cadastra rosto usando câmera; salva foto para consulta |
 | `/face/verify` | POST | Verifica se o rosto (upload) está cadastrado |
 | `/face/capture/verify` | POST | Verifica rosto usando câmera |
+| `/face/photo/{person_id}` | GET | Retorna a foto do rosto cadastrada (para consultas futuras) |
 | **Cadastros** | | |
 | `/persons` | GET/POST | Listar e criar pessoas |
 | `/vehicles` | GET/POST | Listar e criar veículos (placas) |
-| `/authorizations` | GET/POST | Listar e criar autorizações (pessoa + veículo) |
+| `/authorizations` | GET/POST | Listar e criar autorizações: só pessoa (a pé) ou pessoa + veículo |
 | **Acesso** | | |
-| `/access/check` | POST | Verifica acesso (upload: `plate_image` e `face_image`) |
-| `/access/check/camera` | POST | Verifica acesso usando câmera |
+| `/access/check` | POST | Verifica acesso: só face_image (a pé) ou face_image + plate_image (com veículo) |
+| `/access/check/camera` | POST | Verifica acesso usando câmera (placa + rosto) |
 
 ---
 
@@ -146,6 +150,50 @@ docker compose exec -T postgres psql -U guarda guarda < backup_guarda.sql
 ```
 
 O volume `guarda_data` é usado para arquivos da aplicação (ex.: fotos de rostos) em `/app/data`.
+
+---
+
+## Teste local: cadastro de rosto pelo navegador (recomendado)
+
+1. Suba a API: `./scripts/run_local.sh`
+2. Abra no navegador: **http://localhost:8000**
+3. Crie uma pessoa (nome e documento opcional) ou selecione uma existente.
+4. Clique em **Iniciar câmera**: a imagem ao vivo aparece na tela.
+5. Posicione o rosto no quadro e clique em **Capturar rosto**. A foto é enviada para a API, que detecta o rosto, gera o embedding e salva a imagem para futura verificação.
+6. Depois use **POST /face/capture/verify** (em /docs) ou a verificação por upload para confirmar que é você.
+
+---
+
+## Teste local: capturar rosto pela câmera do notebook (Swagger)
+
+Com a API rodando **na sua máquina** (`./scripts/run_local.sh`), a câmera do notebook é usada automaticamente (índice 0). Passos:
+
+1. **Subir a API** (e o Postgres, se usar Docker):
+   ```bash
+   ./scripts/run_local.sh
+   ```
+
+2. **Abrir a documentação interativa:**  
+   [http://localhost:8000/docs](http://localhost:8000/docs)
+
+3. **Criar uma pessoa**  
+   Em **POST /persons**, clique em "Try it out", use o corpo:
+   ```json
+   {"name": "Seu Nome", "document": ""}
+   ```
+   Execute e anote o `id` retornado (ex.: `1`).
+
+4. **Cadastrar seu rosto pela câmera**  
+   Em **POST /face/capture/register/{person_id}**, clique em "Try it out", informe o `person_id` (ex.: `1`) e clique em "Execute".  
+   A API vai capturar um frame da câmera na hora. Deixe o rosto visível e centralizado; em alguns segundos deve retornar sucesso.
+
+5. **Testar reconhecimento (validação)**  
+   Em **POST /face/capture/verify**, "Try it out" → "Execute". A API captura da câmera e responde se o rosto corresponde a alguém cadastrado (e a quem).
+
+6. **Consultar a foto salva**  
+   A captura do rosto (câmera ou upload) é salva em `data/faces/`. Para ver a foto cadastrada: **GET /face/photo/{person_id}** (ex.: abrir no navegador `http://localhost:8000/face/photo/1`).
+
+A câmera usa um breve tempo de ajuste (~1 s) antes de capturar, para melhorar luz e foco. Se der "Câmera não disponível", verifique se outro programa não está usando a webcam e, no Linux, se o usuário tem acesso a `/dev/video0` (ex.: `ls -l /dev/video0`).
 
 ---
 

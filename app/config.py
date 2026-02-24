@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     # Reconhecimento facial
     face_tolerance: float = 0.6  # menor = mais rigoroso
     face_embedding_dim: int = 128
+    face_photos_dir: str = "data/faces"  # pasta para salvar crops (rosto) para consultas futuras
 
     class Config:
         env_file = ".env"

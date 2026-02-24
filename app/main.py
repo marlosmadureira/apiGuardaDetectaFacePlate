@@ -2,9 +2,11 @@
 Guarda - Controle de acesso a veículos e pessoas.
 Piloto: reconhecimento de placa (Brasil/Mercosul) + reconhecimento facial.
 """
+from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from app.config import get_settings
 from app.database import init_db
@@ -17,10 +19,16 @@ from app.routes import (
     access_router,
 )
 
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    # Garante que a pasta de fotos de rosto existe para capturas futuras
+    from pathlib import Path
+    from app.config import get_settings
+    Path(get_settings().face_photos_dir).mkdir(parents=True, exist_ok=True)
     yield
 
 
@@ -49,6 +57,10 @@ app.include_router(access_router)
 
 @app.get("/")
 async def root():
+    """Frontend: cadastro de rosto com câmera ao vivo."""
+    index = STATIC_DIR / "index.html"
+    if index.is_file():
+        return FileResponse(index)
     return {
         "app": get_settings().app_name,
         "docs": "/docs",
