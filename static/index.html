@@ -96,6 +96,20 @@
     }
     .step { margin-bottom: 28px; }
     .step-title { font-weight: 600; color: #7aa2f7; margin-bottom: 12px; }
+    .lista h3 { color: #7aa2f7; font-size: 1rem; margin-bottom: 12px; }
+    .item {
+      padding: 10px 12px;
+      background: #1a1b26;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      font-size: 0.9rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .item .name { font-weight: 600; color: #9ece6a; }
+    .item .btn-del { margin-left: auto; padding: 6px 12px; font-size: 0.85rem; background: #f7768e; color: #1a1b26; border: none; border-radius: 6px; cursor: pointer; }
+    .item .btn-del:hover { opacity: 0.9; }
     a { color: #7aa2f7; }
     #photoPreview { max-width: 100%; border-radius: 8px; margin-top: 12px; }
   </style>
@@ -103,7 +117,7 @@
 <body>
   <div class="container">
     <h1>Guarda – Cadastro de Rosto</h1>
-    <p class="sub">Cadastre sua face pela câmera para futura verificação. <a href="/autorizacoes">Autorizações</a> · <a href="/verificar">Verificação de acesso</a></p>
+    <p class="sub">Cadastre sua face pela câmera para futura verificação. <a href="/placas">Cadastro de placas</a> · <a href="/autorizacoes">Autorizações</a> · <a href="/verificar">Verificação de acesso</a></p>
 
     <div class="card step">
       <div class="step-title">1. Pessoa</div>
@@ -146,6 +160,11 @@
         <p style="margin-top:8px;"><a href="#" id="photoLink" target="_blank">Abrir foto em nova aba</a></p>
       </div>
     </div>
+
+    <div class="card">
+      <h3 class="lista">Pessoas cadastradas</h3>
+      <div id="personList">Carregando...</div>
+    </div>
   </div>
 
   <script>
@@ -167,6 +186,8 @@
     const photoResult = document.getElementById('photoResult');
     const photoPreview = document.getElementById('photoPreview');
 
+    const personListEl = document.getElementById('personList');
+
     async function loadPersons() {
       try {
         const r = await fetch(API_BASE + '/persons');
@@ -178,8 +199,41 @@
           personSelect.appendChild(new Option(p.name + (p.document ? ' (' + p.document + ')' : ''), String(p.id)));
         });
         if (list.length === 0) personSelect.innerHTML = '<option value="">Nenhuma pessoa cadastrada</option>';
+
+        if (personListEl) {
+          if (list.length === 0) {
+            personListEl.innerHTML = '<p style="color:#565f89;">Nenhuma pessoa cadastrada.</p>';
+          } else {
+            personListEl.innerHTML = list.map(p => {
+              const desc = p.document ? ' – ' + p.document : '';
+              return '<div class="item" data-id="' + p.id + '">' +
+                '<span><span class="name">' + p.name + '</span>' + desc + '</span>' +
+                '<button type="button" class="btn-del" data-id="' + p.id + '">Excluir</button></div>';
+            }).join('');
+            personListEl.querySelectorAll('.btn-del').forEach(btn => {
+              btn.addEventListener('click', async function() {
+                const id = btn.getAttribute('data-id');
+                if (!id || !confirm('Excluir esta pessoa? As autorizações vinculadas serão desativadas.')) return;
+                try {
+                  const res = await fetch(API_BASE + '/persons/' + id, { method: 'DELETE' });
+                  if (!res.ok) throw new Error(res.statusText);
+                  showMsg(captureMsg, 'Pessoa excluída.', 'success');
+                  if (currentPersonId === parseInt(id, 10)) {
+                    currentPersonId = null;
+                    personSelect.value = '';
+                    btnCapture.disabled = true;
+                  }
+                  await loadPersons();
+                } catch (e) {
+                  showMsg(captureMsg, 'Erro: ' + (e.message || 'Não foi possível excluir.'), 'error');
+                }
+              });
+            });
+          }
+        }
       } catch (e) {
         personSelect.innerHTML = '<option value="">Erro: ' + e.message + '</option>';
+        if (personListEl) personListEl.innerHTML = '<p style="color:#f7768e;">Erro ao carregar pessoas.</p>';
       }
     }
 

@@ -27,17 +27,20 @@
     .item { padding: 10px 12px; background: #1a1b26; border-radius: 8px; margin-bottom: 8px; font-size: 0.9rem; }
     .item.pedestre { border-left: 4px solid #9ece6a; }
     .item.veiculo { border-left: 4px solid #7aa2f7; }
+    .item.soveiculo { border-left: 4px solid #e0af68; }
+    .item .btn-del { margin-left: auto; padding: 6px 12px; font-size: 0.85rem; background: #f7768e; color: #1a1b26; border: none; border-radius: 6px; cursor: pointer; }
+    .item .btn-del:hover { opacity: 0.9; }
     a { color: #7aa2f7; }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>Guarda – Autorizações de entrada</h1>
-    <p class="sub">Cadastre por tipo: <strong>Pedestre</strong> (só a pé), <strong>Veículo</strong> (pessoa + placa) ou <strong>Pedestre e Veículo</strong> (cria as duas). <a href="/">Cadastro de rosto</a> · <a href="/verificar">Verificação</a></p>
+    <p class="sub">Cadastre por tipo: <strong>Pedestre</strong> (só a pé), <strong>Veículo</strong> (pessoa + placa) ou <strong>Só veículo</strong> (só placa, sem pessoa). <a href="/">Cadastro de rosto</a> · <a href="/placas">Cadastro de placas</a> · <a href="/verificar">Verificação</a></p>
 
     <div class="card">
       <h2 style="font-size:1.1rem; margin-bottom:16px;">Nova autorização</h2>
-      <label>Pessoa</label>
+      <label id="personLabel">Pessoa</label>
       <select id="personSelect">
         <option value="">Carregando...</option>
       </select>
@@ -45,7 +48,7 @@
       <div class="tipo-group">
         <label><input type="radio" name="tipo" value="pedestre" checked> Pedestre (entrada a pé)</label>
         <label><input type="radio" name="tipo" value="veiculo"> Veículo (pessoa + placa)</label>
-        <label><input type="radio" name="tipo" value="ambos"> Pedestre e Veículo</label>
+        <label><input type="radio" name="tipo" value="soveiculo"> Só veículo (apenas placa)</label>
       </div>
       <label id="vehicleLabel" style="display:none;">Veículo</label>
       <select id="vehicleSelect" style="display:none;">
@@ -67,6 +70,7 @@
     var vehicles = [];
 
     var personSelect = document.getElementById('personSelect');
+    var personLabel = document.getElementById('personLabel');
     var vehicleSelect = document.getElementById('vehicleSelect');
     var vehicleLabel = document.getElementById('vehicleLabel');
     var btnCreate = document.getElementById('btnCreate');
@@ -75,9 +79,13 @@
 
     document.querySelectorAll('input[name="tipo"]').forEach(function(r) {
       r.addEventListener('change', function() {
-        var show = (r.value === 'veiculo' || r.value === 'ambos');
-        vehicleLabel.style.display = show ? 'block' : 'none';
-        vehicleSelect.style.display = show ? 'block' : 'none';
+        var tipo = r.value;
+        var showVehicle = (tipo === 'veiculo' || tipo === 'soveiculo');
+        var showPerson = (tipo !== 'soveiculo');
+        vehicleLabel.style.display = showVehicle ? 'block' : 'none';
+        vehicleSelect.style.display = showVehicle ? 'block' : 'none';
+        personLabel.style.display = showPerson ? 'block' : 'none';
+        personSelect.style.display = showPerson ? 'block' : 'none';
       });
     });
 
@@ -113,34 +121,60 @@
         list.innerHTML = '';
         if (arr.length === 0) { list.innerHTML = '<p style="color:#565f89;">Nenhuma autorização ainda.</p>'; return; }
         arr.forEach(function(a) {
-          var person = persons.find(function(p) { return p.id === a.person_id; });
+          var person = a.person_id != null ? persons.find(function(p) { return p.id === a.person_id; }) : null;
           var vehicle = vehicles.find(function(v) { return v.id === a.vehicle_id; });
-          var nome = person ? person.name : 'ID ' + a.person_id;
-          var tipo = a.vehicle_id == null ? 'pedestre' : 'veiculo';
-          var texto = tipo === 'pedestre' ? 'Pedestre: ' + nome : 'Veículo: ' + nome + (vehicle ? ' – ' + vehicle.plate : '');
+          var tipo, texto;
+          if (a.person_id == null && a.vehicle_id != null) {
+            tipo = 'soveiculo';
+            texto = 'Só veículo: ' + (vehicle ? vehicle.plate : 'ID ' + a.vehicle_id);
+          } else if (a.vehicle_id == null) {
+            tipo = 'pedestre';
+            texto = 'Pedestre: ' + (person ? person.name : 'ID ' + a.person_id);
+          } else {
+            tipo = 'veiculo';
+            texto = 'Veículo: ' + (person ? person.name : 'ID ' + a.person_id) + (vehicle ? ' – ' + vehicle.plate : '');
+          }
           var div = document.createElement('div');
           div.className = 'item ' + tipo;
-          div.textContent = texto;
+          div.innerHTML = '<span>' + texto + '</span><button type="button" class="btn-del" data-id="' + a.id + '">Excluir</button>';
+          var btn = div.querySelector('.btn-del');
+          btn.addEventListener('click', function() {
+            var id = btn.getAttribute('data-id');
+            if (!id || !confirm('Excluir esta autorização?')) return;
+            fetch(API_BASE + '/authorizations/' + id, { method: 'DELETE' })
+              .then(function(r) {
+                if (!r.ok) return Promise.reject(new Error(r.statusText));
+                msg.innerHTML = '<div class="msg success">Autorização excluída.</div>';
+                loadAuthorizations();
+              })
+              .catch(function(e) { msg.innerHTML = '<div class="msg error">Erro: ' + (e.message || e) + '</div>'; });
+          });
           list.appendChild(div);
         });
       }).catch(function() { list.innerHTML = '<p style="color:#f7768e;">Erro ao carregar lista.</p>'; });
     }
 
     btnCreate.addEventListener('click', function() {
-      var personId = personSelect.value;
-      if (!personId) { msg.innerHTML = '<div class="msg error">Selecione a pessoa.</div>'; return; }
       var tipo = document.querySelector('input[name="tipo"]:checked').value;
+      var personId = personSelect.value;
       var vehicleId = vehicleSelect.value || null;
 
-      if ((tipo === 'veiculo' || tipo === 'ambos') && !vehicleId) {
-        msg.innerHTML = '<div class="msg error">Selecione o veículo para este tipo.</div>';
-        return;
+      if (tipo === 'soveiculo') {
+        if (!vehicleId) { msg.innerHTML = '<div class="msg error">Selecione o veículo.</div>'; return; }
+      } else {
+        if (!personId) { msg.innerHTML = '<div class="msg error">Selecione a pessoa.</div>'; return; }
+        if (tipo === 'veiculo' && !vehicleId) {
+          msg.innerHTML = '<div class="msg error">Selecione o veículo para este tipo.</div>';
+          return;
+        }
       }
       btnCreate.disabled = true;
       msg.innerHTML = '';
 
-      function postOne(vid) {
-        var body = { person_id: parseInt(personId, 10) };
+      function postOne(pid, vid) {
+        var body = {};
+        if (pid != null) body.person_id = parseInt(pid, 10);
+        else body.person_id = null;
         if (vid) body.vehicle_id = parseInt(vid, 10);
         return fetch(API_BASE + '/authorizations', {
           method: 'POST',
@@ -153,13 +187,14 @@
       }
 
       var promises = [];
-      if (tipo === 'pedestre') promises.push(postOne(null));
-      else if (tipo === 'veiculo') promises.push(postOne(vehicleId));
-      else { promises.push(postOne(null)); promises.push(postOne(vehicleId)); }
+      if (tipo === 'pedestre') promises.push(postOne(personId, null));
+      else if (tipo === 'veiculo') promises.push(postOne(personId, vehicleId));
+      else if (tipo === 'soveiculo') promises.push(postOne(null, vehicleId));
 
       Promise.all(promises)
         .then(function() {
-          msg.innerHTML = '<div class="msg success">' + (tipo === 'ambos' ? 'Autorizações (pedestre e veículo) cadastradas.' : 'Autorização cadastrada.') + '</div>';
+          var successMsg = tipo === 'soveiculo' ? 'Autorização (só veículo) cadastrada.' : 'Autorização cadastrada.';
+          msg.innerHTML = '<div class="msg success">' + successMsg + '</div>';
           loadAuthorizations();
         })
         .catch(function(e) {

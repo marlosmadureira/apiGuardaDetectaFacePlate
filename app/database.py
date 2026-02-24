@@ -37,3 +37,24 @@ async def init_db():
         except Exception as e:
             if "already nullable" not in str(e).lower():
                 raise
+        # Migração: autorização pode ser só do veículo (sem pessoa)
+        try:
+            await conn.execute(text(
+                "ALTER TABLE authorizations ALTER COLUMN person_id DROP NOT NULL"
+            ))
+        except Exception as e:
+            if "already nullable" not in str(e).lower():
+                raise
+        # Migração: ON DELETE CASCADE nas FKs de authorizations (excluir pessoa/veículo exclui autorizações)
+        for col, ref in [("person_id", "persons(id)"), ("vehicle_id", "vehicles(id)")]:
+            cname = f"authorizations_{col}_fkey"
+            try:
+                await conn.execute(text(
+                    f"ALTER TABLE authorizations DROP CONSTRAINT IF EXISTS {cname}"
+                ))
+                await conn.execute(text(
+                    f"ALTER TABLE authorizations ADD CONSTRAINT {cname} "
+                    f"FOREIGN KEY ({col}) REFERENCES {ref} ON DELETE CASCADE"
+                ))
+            except Exception:
+                pass  # ignora se já existir com outro nome; o cascade em código já garante a exclusão

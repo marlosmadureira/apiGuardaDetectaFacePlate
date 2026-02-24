@@ -62,16 +62,16 @@ class VehicleResponse(BaseModel):
 
 
 # --- Autorização ---
-# Tipos: Pedestre (vehicle_id null), Veículo (vehicle_id preenchido), Pedestre e Veículo (criar as duas).
+# Tipos: Pedestre (person_id + vehicle_id null), Veículo com pessoa (person_id + vehicle_id), Só veículo (person_id null + vehicle_id).
 class AuthorizationCreate(BaseModel):
-    person_id: int
-    vehicle_id: Optional[int] = None  # null/omitido = Pedestre; preenchido = Veículo (pessoa + placa)
+    person_id: Optional[int] = None  # null = autorização só do veículo (obrigatório vehicle_id)
+    vehicle_id: Optional[int] = None  # null = entrada a pé; preenchido = com veículo ou só veículo
 
 
 class AuthorizationResponse(BaseModel):
     id: int
-    person_id: int
-    vehicle_id: Optional[int]
+    person_id: Optional[int] = None
+    vehicle_id: Optional[int] = None
     is_active: bool
     created_at: datetime
 

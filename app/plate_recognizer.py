@@ -10,6 +10,11 @@ import pytesseract
 from typing import Optional, Tuple
 from dataclasses import dataclass
 
+try:
+    from pytesseract import TesseractNotFoundError
+except ImportError:
+    TesseractNotFoundError = Exception  # fallback se a versão não expor a exceção
+
 
 @dataclass
 class PlateResult:
@@ -84,10 +89,21 @@ def _find_plate_contours(image: np.ndarray) -> list:
     return sorted(candidates, key=lambda r: r[2] * r[3], reverse=True)[:5]
 
 
+def _run_tesseract(proc: np.ndarray) -> Optional[str]:
+    """Executa OCR com Tesseract. Retorna None se o Tesseract não estiver instalado."""
+    config = "--psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    try:
+        text = pytesseract.image_to_string(proc, config=config).strip()
+        return text
+    except (TesseractNotFoundError, FileNotFoundError, OSError):
+        return None
+
+
 def recognize_plate_from_image(image: np.ndarray) -> Optional[PlateResult]:
     """
     Reconhece placa em uma imagem (BGR).
     Tenta primeiro encontrar ROI da placa por contornos; se não achar, usa imagem inteira.
+    Se o Tesseract não estiver instalado, retorna None (a verificação continua só por rosto).
     """
     if image is None or image.size == 0:
         return None
@@ -99,8 +115,9 @@ def recognize_plate_from_image(image: np.ndarray) -> Optional[PlateResult]:
     for (x, y, w, h) in rois:
         roi = image[y : y + h, x : x + w]
         proc = _preprocess_for_ocr(roi)
-        config = "--psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-        text = pytesseract.image_to_string(proc, config=config).strip()
+        text = _run_tesseract(proc)
+        if text is None:
+            break  # Tesseract indisponível, não adianta continuar
         text = _normalize_plate_text(text)
         if len(text) >= 6:
             fmt = _classify_plate(text)
@@ -115,22 +132,22 @@ def recognize_plate_from_image(image: np.ndarray) -> Optional[PlateResult]:
             if best is None or len(text) >= len(best.raw_text):
                 best = result
 
-    # Fallback: imagem inteira
+    # Fallback: imagem inteira (só se Tesseract está ok)
     if best is None:
         proc = _preprocess_for_ocr(image)
-        config = "--psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-        text = pytesseract.image_to_string(proc, config=config).strip()
-        text = _normalize_plate_text(text)
-        if len(text) >= 6:
-            fmt = _classify_plate(text)
-            display = _format_display(text, fmt)
-            best = PlateResult(
-                raw_text=text,
-                normalized=display,
-                format_type=fmt,
-                confidence=0.5,
-                roi=None,
-            )
+        text = _run_tesseract(proc)
+        if text is not None:
+            text = _normalize_plate_text(text)
+            if len(text) >= 6:
+                fmt = _classify_plate(text)
+                display = _format_display(text, fmt)
+                best = PlateResult(
+                    raw_text=text,
+                    normalized=display,
+                    format_type=fmt,
+                    confidence=0.5,
+                    roi=None,
+                )
 
     return best
 

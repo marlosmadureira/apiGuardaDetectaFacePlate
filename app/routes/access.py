@@ -93,9 +93,18 @@ async def check_access(
     else:
         message_parts.append("Envie face_image para verificar pessoa.")
 
-    # 3) Autorização: entrada a pé (só face) ou entrada com veículo (face + placa)
-    if person_id is not None and vehicle_plate is not None:
-        # Entrada com veículo: só permite se existir autorização pessoa + este veículo
+    # 3) Autorização: a primeira que bater permite (nunca exige rosto E placa juntos)
+    # 3a) Pedestre: só rosto
+    if person_id is not None:
+        q_ped = select(Authorization).where(
+            Authorization.person_id == person_id,
+            Authorization.is_active == True,
+            Authorization.vehicle_id.is_(None),
+        )
+        if (await db.execute(q_ped)).first() is not None:
+            allowed = True
+    # 3b) Pessoa + veículo: rosto e placa (só se ainda não liberou por pedestre)
+    if not allowed and person_id is not None and vehicle_plate is not None:
         q2 = select(Authorization).where(
             Authorization.person_id == person_id,
             Authorization.is_active == True,
@@ -103,39 +112,43 @@ async def check_access(
         )
         auths = (await db.execute(q2)).scalars().all()
         vehicle_ids = [a.vehicle_id for a in auths]
-        person_vehicle_ok = False
         if vehicle_ids:
             vq = select(Vehicle).where(
                 Vehicle.plate == vehicle_plate, Vehicle.id.in_(vehicle_ids)
             )
-            person_vehicle_ok = (await db.execute(vq)).scalar_one_or_none() is not None
-        if person_vehicle_ok:
-            allowed = True
-        else:
-            if vehicle_authorized:
-                message_parts.append("Pessoa não autorizada para este veículo.")
-            else:
-                message_parts.append("Veículo não autorizado.")
-    elif person_id is not None:
-        # Entrada a pé: só permite se existir autorização da pessoa com vehicle_id = null
-        q = select(Authorization).where(
-            Authorization.person_id == person_id,
-            Authorization.is_active == True,
-            Authorization.vehicle_id.is_(None),
+            if (await db.execute(vq)).scalar_one_or_none() is not None:
+                allowed = True
+    # 3c) Só veículo: só placa (não exige rosto)
+    if not allowed and vehicle_plate and vehicle_authorized:
+        vq = select(Vehicle.id).where(
+            Vehicle.plate == vehicle_plate, Vehicle.is_active == True
         )
-        auths = (await db.execute(q)).scalars().all()
-        allowed = len(auths) > 0
-        if not allowed:
-            message_parts.append("Pessoa reconhecida, mas sem autorização de entrada a pé.")
-    elif vehicle_plate and vehicle_authorized:
-        message_parts.append("Veículo autorizado, mas pessoa não identificada.")
-    else:
-        if not message_parts:
-            message_parts.append("Envie face_image (e opcionalmente plate_image) para verificação.")
+        vid = (await db.execute(vq)).scalar_one_or_none()
+        if vid is not None:
+            q_veh = select(Authorization).where(
+                Authorization.person_id.is_(None),
+                Authorization.vehicle_id == vid,
+                Authorization.is_active == True,
+            )
+            if (await db.execute(q_veh)).first() is not None:
+                allowed = True
 
-    message = " ".join(message_parts) if message_parts else (
-        "Acesso autorizado." if allowed else "Acesso negado."
-    )
+    if not allowed and not message_parts:
+        if person_id is None and not vehicle_plate:
+            message_parts.append("Envie face_image (e opcionalmente plate_image) para verificação.")
+        elif person_id is not None:
+            message_parts.append("Pessoa sem autorização de entrada a pé.")
+        elif vehicle_plate and vehicle_authorized:
+            message_parts.append("Placa sem autorização (só veículo).")
+        else:
+            message_parts.append("Rosto ou placa não reconhecidos.")
+
+    if allowed:
+        message = "Acesso autorizado."
+    elif message_parts:
+        message = " ".join(message_parts)
+    else:
+        message = "Acesso negado."
 
     return AccessCheckResponse(
         allowed=allowed,
@@ -206,8 +219,16 @@ async def check_access_from_camera(db: AsyncSession = Depends(get_db)):
 
     allowed = False
     message_parts = []
-    if person_id and vehicle_plate:
-        # Entrada com veículo: autorização deve ser pessoa + este veículo
+    # A primeira que bater permite: pedestre OU pessoa+veículo OU só veículo (nunca os 2 juntos)
+    if person_id:
+        q_ped = select(Authorization).where(
+            Authorization.person_id == person_id,
+            Authorization.is_active == True,
+            Authorization.vehicle_id.is_(None),
+        )
+        if (await db.execute(q_ped)).first() is not None:
+            allowed = True
+    if not allowed and person_id and vehicle_plate:
         q = select(Authorization).where(
             Authorization.person_id == person_id,
             Authorization.is_active == True,
@@ -215,35 +236,41 @@ async def check_access_from_camera(db: AsyncSession = Depends(get_db)):
         )
         auths = (await db.execute(q)).scalars().all()
         vehicle_ids = [a.vehicle_id for a in auths]
-        person_vehicle_ok = False
         if vehicle_ids:
             vq = select(Vehicle).where(
                 Vehicle.plate == vehicle_plate, Vehicle.id.in_(vehicle_ids)
             )
-            person_vehicle_ok = (await db.execute(vq)).scalar_one_or_none() is not None
-        allowed = person_vehicle_ok
-        if not allowed:
-            message_parts.append("Pessoa não autorizada para este veículo ou placa não identificada.")
-    elif person_id:
-        # Entrada a pé: autorização com vehicle_id = null
-        q = select(Authorization).where(
-            Authorization.person_id == person_id,
-            Authorization.is_active == True,
-            Authorization.vehicle_id.is_(None),
+            if (await db.execute(vq)).scalar_one_or_none() is not None:
+                allowed = True
+    if not allowed and vehicle_plate and vehicle_authorized:
+        vq = select(Vehicle.id).where(
+            Vehicle.plate == vehicle_plate, Vehicle.is_active == True
         )
-        auths = (await db.execute(q)).scalars().all()
-        allowed = len(auths) > 0
-        if not allowed:
+        vid = (await db.execute(vq)).scalar_one_or_none()
+        if vid is not None:
+            q_veh = select(Authorization).where(
+                Authorization.person_id.is_(None),
+                Authorization.vehicle_id == vid,
+                Authorization.is_active == True,
+            )
+            if (await db.execute(q_veh)).first() is not None:
+                allowed = True
+    if not allowed:
+        if not vehicle_plate and not person_name:
+            message_parts.append("Placa e rosto não identificados.")
+        elif person_id:
             message_parts.append("Pessoa sem autorização de entrada a pé.")
-    else:
-        if not vehicle_plate:
-            message_parts.append("Placa não identificada.")
-        if not person_name:
-            message_parts.append("Rosto não reconhecido.")
+        elif vehicle_plate and vehicle_authorized:
+            message_parts.append("Veículo sem autorização (só placa).")
+        else:
+            message_parts.append("Rosto ou placa não reconhecidos.")
 
-    message = " ".join(message_parts) if message_parts else (
-        "Acesso autorizado." if allowed else "Acesso negado."
-    )
+    if allowed:
+        message = "Acesso autorizado."
+    elif message_parts:
+        message = " ".join(message_parts)
+    else:
+        message = "Acesso negado."
     return AccessCheckResponse(
         allowed=allowed,
         person_id=person_id,

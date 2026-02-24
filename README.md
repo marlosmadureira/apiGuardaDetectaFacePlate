@@ -28,7 +28,12 @@ Um único script instala as dependências (com `pip --user`), cria `.env` e a pa
 
 Na primeira execução instala as dependências e cria o `.env`; nas seguintes só confere e sobe a API (e o Postgres no Docker, se estiver parado).
 
-**Interface no navegador:** abra **http://localhost:8000** para cadastrar seu rosto: câmera ao vivo, botão "Capturar rosto" envia a foto para a API (que extrai o rosto e grava o embedding para futura verificação).  
+**Interface no navegador:**  
+- **http://localhost:8000** – Cadastro de rosto (câmera ao vivo).  
+- **http://localhost:8000/placas** – Cadastro de placas/veículos: digitar placa ou usar a câmera para ler a placa e depois cadastrar.  
+- **http://localhost:8000/autorizacoes** – Cadastro de autorizações (pedestre, veículo ou ambos).  
+- **http://localhost:8000/verificar** – Verificação ao vivo: entrada a pé (só rosto) ou com veículo (rosto + placa); a cada 2 s envia o frame para a API.  
+
 API: **http://localhost:8000** | Docs: **http://localhost:8000/docs**
 
 ---
@@ -86,6 +91,7 @@ Se a câmera não for detectada, use os endpoints que aceitam **upload de imagem
 - **Tipos de autorização** (um registro = um tipo):
   - **Pedestre:** pessoa com `vehicle_id = null` → entra só a pé (verificação **facial**).
   - **Veículo:** pessoa + `vehicle_id` → entra com aquele veículo (verificação **facial + placa**).
+  - **Só veículo:** `person_id = null` e `vehicle_id` preenchido → entrada **apenas pela placa**, sem vínculo com pessoa.
   - **Pedestre e Veículo:** a mesma pessoa pode entrar a pé ou de carro → cadastre **duas** autorizações (uma pedestre, uma com veículo).
 - Use a tela **http://localhost:8000/autorizacoes** para cadastrar por tipo (Pedestre / Veículo / Pedestre e Veículo).
 - A **verificação de acesso** usa só rosto para pedestre; rosto + placa para veículo.

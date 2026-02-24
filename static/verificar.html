@@ -74,6 +74,7 @@
       font-size: 1.2rem;
     }
     .person-name { font-size: 1rem; margin-top: 8px; text-transform: none; letter-spacing: 0; opacity: 0.95; }
+    .detail-line { font-size: 0.85rem; margin-top: 4px; opacity: 0.9; }
     .controls {
       margin-top: 20px;
       display: flex;
@@ -101,7 +102,7 @@
 </head>
 <body>
   <h1>Guarda – Verificação de Acesso</h1>
-  <p class="sub">Câmera ao vivo: o sistema verifica se o rosto está autorizado a entrar.</p>
+  <p class="sub">Câmera ao vivo: libera pela <strong>primeira condição</strong> que bater — só <strong>rosto</strong> (pedestre) ou só <strong>placa</strong> (veículo). Nunca exige os dois juntos.</p>
   <p id="chromeHint">No Chrome use <a href="http://localhost:8000/verificar">http://localhost:8000/verificar</a> (não 0.0.0.0:8000).</p>
 
   <div class="camera-wrap">
@@ -116,8 +117,8 @@
     <button type="button" class="primary" id="btnStart">Iniciar câmera</button>
     <button type="button" id="btnStop" style="display:none;">Parar</button>
   </div>
-  <p class="hint">A verificação é feita a cada 2 segundos. Quem tem autorização de entrada a pé aparece como "Autorizado".</p>
-  <p class="hint"><a href="/">← Voltar ao cadastro de rosto</a></p>
+  <p class="hint">A verificação é feita a cada 2 segundos. Basta rosto (pedestre) ou placa (veículo) no quadro — a primeira que for reconhecida e autorizada libera o acesso.</p>
+  <p class="hint"><a href="/">Cadastro de rosto</a> · <a href="/placas">Cadastro de placas</a> · <a href="/autorizacoes">Autorizações</a></p>
 
   <script>
     var API_BASE = '';
@@ -142,6 +143,13 @@
       statusBox.innerHTML = text + (sub ? '<div class="person-name">' + sub + '</div>' : '');
     }
 
+    function buildDetail(data) {
+      var parts = [];
+      if (data.person_name) parts.push(data.person_name);
+      if (data.vehicle_plate) parts.push('Placa: ' + data.vehicle_plate);
+      return parts.join(' · ');
+    }
+
     function checkFace() {
       if (!stream || isChecking || !video.videoWidth) return;
       isChecking = true;
@@ -154,13 +162,15 @@
         if (!blob) { isChecking = false; setStatus('nao-autorizado', 'Erro', 'Sem imagem'); return; }
         var form = new FormData();
         form.append('face_image', blob, 'frame.jpg');
+        form.append('plate_image', blob, 'frame.jpg');
         fetch(API_BASE + '/access/check', { method: 'POST', body: form })
           .then(function(r) { return r.json(); })
           .then(function(data) {
+            var detail = buildDetail(data);
             if (data.allowed) {
-              setStatus('autorizado', 'Autorizado', data.person_name || '');
+              setStatus('autorizado', 'Autorizado', detail);
             } else {
-              setStatus('nao-autorizado', 'Não autorizado', data.message || '');
+              setStatus('nao-autorizado', 'Não autorizado', data.message || detail);
             }
           })
           .catch(function(e) {

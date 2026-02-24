@@ -86,6 +86,15 @@ async def autorizacoes_page():
     raise HTTPException(status_code=404, detail="Página não encontrada")
 
 
+@app.get("/placas")
+async def placas_page():
+    """Tela de cadastro de placas (veículos): lista, formulário e captura pela câmera."""
+    path = STATIC_DIR / "placas.html"
+    if path.is_file():
+        return FileResponse(path)
+    raise HTTPException(status_code=404, detail="Página não encontrada")
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
