@@ -24,6 +24,7 @@ class PlateResult:
     format_type: str  # "old" ou "mercosul"
     confidence: float
     roi: Optional[np.ndarray] = None  # região da placa (opcional)
+    bbox: Optional[Tuple[int, int, int, int]] = None  # (x, y, w, h) na imagem
 
 
 # Padrões Brasil (texto normalizado, sem hífen):
@@ -128,6 +129,7 @@ def recognize_plate_from_image(image: np.ndarray) -> Optional[PlateResult]:
                 format_type=fmt,
                 confidence=0.8,
                 roi=roi,
+                bbox=(x, y, w, h),
             )
             if best is None or len(text) >= len(best.raw_text):
                 best = result
@@ -141,12 +143,14 @@ def recognize_plate_from_image(image: np.ndarray) -> Optional[PlateResult]:
             if len(text) >= 6:
                 fmt = _classify_plate(text)
                 display = _format_display(text, fmt)
+                h_img, w_img = image.shape[:2]
                 best = PlateResult(
                     raw_text=text,
                     normalized=display,
                     format_type=fmt,
                     confidence=0.5,
                     roi=None,
+                    bbox=(0, 0, w_img, h_img),
                 )
 
     return best

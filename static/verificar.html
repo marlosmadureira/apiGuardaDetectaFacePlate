@@ -37,7 +37,17 @@
       display: block;
     }
     #canvas { display: none; }
+    #overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 1;
+    }
     .status-overlay {
+      z-index: 2;
       position: absolute;
       top: 0;
       left: 0;
@@ -102,11 +112,12 @@
 </head>
 <body>
   <h1>Guarda – Verificação de Acesso</h1>
-  <p class="sub">Câmera ao vivo: libera pela <strong>primeira condição</strong> que bater — só <strong>rosto</strong> (pedestre) ou só <strong>placa</strong> (veículo). Nunca exige os dois juntos.</p>
+  <p class="sub">Câmera ao vivo: o mesmo frame é usado para <strong>reconhecimento facial</strong> e <strong>leitura de placa</strong>. Libera por rosto (pedestre), por placa (veículo) ou por ambos.</p>
   <p id="chromeHint">No Chrome use <a href="http://localhost:8000/verificar">http://localhost:8000/verificar</a> (não 0.0.0.0:8000).</p>
 
   <div class="camera-wrap">
     <video id="video" autoplay playsinline muted></video>
+    <canvas id="overlay"></canvas>
     <div class="status-overlay">
       <div id="statusBox" class="status-box verificando">Iniciando...</div>
     </div>
@@ -117,7 +128,7 @@
     <button type="button" class="primary" id="btnStart">Iniciar câmera</button>
     <button type="button" id="btnStop" style="display:none;">Parar</button>
   </div>
-  <p class="hint">A verificação é feita a cada 2 segundos. Basta rosto (pedestre) ou placa (veículo) no quadro — a primeira que for reconhecida e autorizada libera o acesso.</p>
+  <p class="hint">A verificação é feita a cada 2 segundos. Posicione o rosto e/ou a placa no quadro; a mesma imagem é analisada para face e para placa e comparada com o banco de dados.</p>
   <p class="hint"><a href="/">Cadastro de rosto</a> · <a href="/placas">Cadastro de placas</a> · <a href="/autorizacoes">Autorizações</a></p>
 
   <script>
@@ -128,7 +139,54 @@
 
     var video = document.getElementById('video');
     var canvas = document.getElementById('canvas');
+    var overlay = document.getElementById('overlay');
     var statusBox = document.getElementById('statusBox');
+
+    function drawBoxes(faceBbox, plateBbox) {
+      if (!overlay || !video.videoWidth) return;
+      var vw = video.videoWidth;
+      var vh = video.videoHeight;
+      var cw = video.clientWidth;
+      var ch = video.clientHeight;
+      var scale = Math.max(cw / vw, ch / vh);
+      var offsetX = (cw - vw * scale) / 2;
+      var offsetY = (ch - vh * scale) / 2;
+      function toDisplay(bbox) {
+        if (!bbox || bbox.length !== 4) return null;
+        var x = bbox[0], y = bbox[1], w = bbox[2], h = bbox[3];
+        return [ offsetX + x * scale, offsetY + y * scale, w * scale, h * scale ];
+      }
+      overlay.width = cw;
+      overlay.height = ch;
+      var ctx = overlay.getContext('2d');
+      ctx.clearRect(0, 0, cw, ch);
+      var faceRect = toDisplay(faceBbox);
+      if (faceRect) {
+        ctx.strokeStyle = '#9ece6a';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(faceRect[0], faceRect[1], faceRect[2], faceRect[3]);
+        ctx.font = '14px sans-serif';
+        ctx.fillStyle = '#9ece6a';
+        ctx.fillText('Rosto', faceRect[0], faceRect[1] - 4);
+      }
+      var plateRect = toDisplay(plateBbox);
+      if (plateRect) {
+        ctx.strokeStyle = '#7aa2f7';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(plateRect[0], plateRect[1], plateRect[2], plateRect[3]);
+        ctx.font = '14px sans-serif';
+        ctx.fillStyle = '#7aa2f7';
+        ctx.fillText('Placa', plateRect[0], plateRect[1] - 4);
+      }
+    }
+
+    function clearOverlay() {
+      if (!overlay || !video) return;
+      overlay.width = video.clientWidth;
+      overlay.height = video.clientHeight;
+      var ctx = overlay.getContext('2d');
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+    }
 
     function getUserMediaPromise(constraints) {
       if (navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function')
@@ -145,7 +203,7 @@
 
     function buildDetail(data) {
       var parts = [];
-      if (data.person_name) parts.push(data.person_name);
+      if (data.person_name) parts.push('Rosto: ' + data.person_name);
       if (data.vehicle_plate) parts.push('Placa: ' + data.vehicle_plate);
       return parts.join(' · ');
     }
@@ -154,6 +212,7 @@
       if (!stream || isChecking || !video.videoWidth) return;
       isChecking = true;
       setStatus('verificando', 'Verificando...', '');
+      clearOverlay();
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       var ctx = canvas.getContext('2d');
@@ -162,10 +221,10 @@
         if (!blob) { isChecking = false; setStatus('nao-autorizado', 'Erro', 'Sem imagem'); return; }
         var form = new FormData();
         form.append('face_image', blob, 'frame.jpg');
-        form.append('plate_image', blob, 'frame.jpg');
         fetch(API_BASE + '/access/check', { method: 'POST', body: form })
           .then(function(r) { return r.json(); })
           .then(function(data) {
+            drawBoxes(data.face_bbox || null, data.plate_bbox || null);
             var detail = buildDetail(data);
             if (data.allowed) {
               setStatus('autorizado', 'Autorizado', detail);

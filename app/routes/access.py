@@ -14,7 +14,7 @@ from app.database import get_db
 from app.models import Person, Vehicle, Authorization
 from app.config import get_settings
 from app.plate_recognizer import recognize_plate_from_image, capture_frame
-from app.face_service import embedding_from_image, compare_face_to_embeddings
+from app.face_service import get_face_bbox_and_embedding, compare_face_to_embeddings
 from app.schemas import AccessCheckResponse
 
 router = APIRouter(prefix="/access", tags=["Controle de acesso"])
@@ -27,71 +27,70 @@ def _decode_image(file_bytes: bytes) -> np.ndarray:
 
 @router.post("/check", response_model=AccessCheckResponse)
 async def check_access(
-    plate_image: UploadFile = File(None),
-    face_image: UploadFile = File(None),
+    face_image: UploadFile = File(..., description="Imagem do frame (câmera). Usada para reconhecimento facial e leitura de placa."),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Verifica acesso por upload de imagens.
-    - Só face_image: entrada a pé → permite se existir autorização da pessoa com vehicle_id = null.
-    - face_image + plate_image: entrada com veículo → permite se existir autorização da pessoa para aquele veículo (facial + placa).
+    Verifica acesso a partir de uma única imagem (frame da câmera).
+    A mesma imagem é usada para: (1) reconhecimento facial e (2) leitura de placa (OCR).
+    Libera por pedestre (rosto) ou por veículo (placa) ou por pessoa+veículo.
     """
-    plate_ok = False
+    content = await face_image.read()
+    if not content:
+        return AccessCheckResponse(
+            allowed=False,
+            message="Imagem vazia. Envie o frame da câmera.",
+        )
+    img = _decode_image(content)
+    if img is None:
+        return AccessCheckResponse(allowed=False, message="Imagem inválida.")
+
     vehicle_plate = None
     vehicle_authorized = None
+    plate_bbox = None
     person_id = None
     person_name = None
+    face_bbox = None
     allowed = False
     message_parts = []
 
-    # 1) Placa
-    if plate_image and plate_image.filename:
-        content = await plate_image.read()
-        if content:
-            img = _decode_image(content)
-            if img is not None:
-                result = recognize_plate_from_image(img)
-                if result and result.normalized:
-                    vehicle_plate = result.normalized
-                    plate_ok = True
-                    q = select(Vehicle).where(
-                        Vehicle.plate == vehicle_plate, Vehicle.is_active == True
-                    )
-                    v = (await db.execute(q)).scalar_one_or_none()
-                    vehicle_authorized = v is not None
-                    if not vehicle_authorized:
-                        message_parts.append("Veículo não autorizado.")
+    # 1) Placa: extrai da própria imagem (câmera ao vivo pode mostrar a placa)
+    result_plate = recognize_plate_from_image(img)
+    if result_plate and result_plate.normalized:
+        vehicle_plate = result_plate.normalized
+        plate_bbox = list(result_plate.bbox) if result_plate.bbox else None
+        q = select(Vehicle).where(
+            Vehicle.plate == vehicle_plate, Vehicle.is_active == True
+        )
+        v = (await db.execute(q)).scalar_one_or_none()
+        vehicle_authorized = v is not None
+        if not vehicle_authorized and vehicle_plate:
+            message_parts.append("Placa não cadastrada.")
 
-    # 2) Rosto
-    if face_image and face_image.filename:
-        content = await face_image.read()
-        if content:
-            img = _decode_image(content)
-            if img is not None:
-                embedding = embedding_from_image(img)
-                if embedding is not None:
-                    settings = get_settings()
-                    q = select(Person.id, Person.name, Person.face_embedding).where(
-                        Person.is_active == True,
-                        Person.face_embedding.isnot(None),
-                        Person.face_embedding != "",
-                    )
-                    rows = (await db.execute(q)).all()
-                    stored = [(r[0], r[1], r[2]) for r in rows if r[2]]
-                    match = compare_face_to_embeddings(
-                        embedding, stored, tolerance=settings.face_tolerance
-                    )
-                    if match:
-                        person_id = match.person_id
-                        person_name = match.name
-                    else:
-                        message_parts.append("Pessoa não reconhecida.")
-                else:
-                    message_parts.append("Nenhum rosto detectado.")
+    # 2) Rosto: extrai da mesma imagem
+    face_bbox_tuple, embedding = get_face_bbox_and_embedding(img)
+    if face_bbox_tuple:
+        face_bbox = list(face_bbox_tuple)
+    if embedding is not None:
+        settings = get_settings()
+        q = select(Person.id, Person.name, Person.face_embedding).where(
+            Person.is_active == True,
+            Person.face_embedding.isnot(None),
+            Person.face_embedding != "",
+        )
+        rows = (await db.execute(q)).all()
+        stored = [(r[0], r[1], r[2]) for r in rows if r[2]]
+        match = compare_face_to_embeddings(
+            embedding, stored, tolerance=settings.face_tolerance
+        )
+        if match:
+            person_id = match.person_id
+            person_name = match.name
         else:
-            message_parts.append("Imagem do rosto vazia.")
+            message_parts.append("Pessoa não reconhecida.")
     else:
-        message_parts.append("Envie face_image para verificar pessoa.")
+        if not vehicle_plate:
+            message_parts.append("Nenhum rosto nem placa detectados.")
 
     # 3) Autorização: a primeira que bater permite (nunca exige rosto E placa juntos)
     # 3a) Pedestre: só rosto
@@ -135,7 +134,7 @@ async def check_access(
 
     if not allowed and not message_parts:
         if person_id is None and not vehicle_plate:
-            message_parts.append("Envie face_image (e opcionalmente plate_image) para verificação.")
+            message_parts.append("Nenhum rosto nem placa reconhecidos na imagem.")
         elif person_id is not None:
             message_parts.append("Pessoa sem autorização de entrada a pé.")
         elif vehicle_plate and vehicle_authorized:
@@ -156,6 +155,8 @@ async def check_access(
         person_name=person_name,
         vehicle_plate=vehicle_plate,
         vehicle_authorized=vehicle_authorized,
+        face_bbox=face_bbox,
+        plate_bbox=plate_bbox,
         message=message,
     )
 

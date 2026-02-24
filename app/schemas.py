@@ -86,4 +86,6 @@ class AccessCheckResponse(BaseModel):
     person_name: Optional[str] = None
     vehicle_plate: Optional[str] = None
     vehicle_authorized: Optional[bool] = None
+    face_bbox: Optional[List[int]] = None   # [x, y, width, height] rosto detectado
+    plate_bbox: Optional[List[int]] = None  # [x, y, width, height] placa detectada
     message: str

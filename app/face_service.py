@@ -61,6 +61,28 @@ def embedding_from_image(image: np.ndarray) -> Optional[np.ndarray]:
     return emb
 
 
+def get_face_bbox_and_embedding(
+    image: np.ndarray,
+) -> Tuple[Optional[Tuple[int, int, int, int]], Optional[np.ndarray]]:
+    """
+    Detecta o maior rosto na imagem, retorna (bbox, embedding).
+    bbox: (left, top, width, height) em pixels; embedding 128-d.
+    """
+    rgb = image[:, :, ::-1] if len(image.shape) == 3 else image
+    rgb = np.ascontiguousarray(rgb)
+    face_locations = face_recognition.face_locations(rgb)
+    if not face_locations:
+        return None, None
+    top, right, bottom, left = max(
+        face_locations,
+        key=lambda loc: (loc[2] - loc[0]) * (loc[1] - loc[3]),
+    )
+    encodings = face_recognition.face_encodings(rgb, [(top, right, bottom, left)], num_jitters=0)
+    if not encodings:
+        return (left, top, right - left, bottom - top), None
+    return (left, top, right - left, bottom - top), encodings[0]
+
+
 def compare_face_to_embeddings(
     embedding: np.ndarray,
     stored_embeddings: List[Tuple[int, str, str]],  # (person_id, name, embedding_str)
