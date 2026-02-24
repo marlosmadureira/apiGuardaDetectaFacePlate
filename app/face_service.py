@@ -38,6 +38,7 @@ def get_face_crop_and_embedding(
     image: BGR (OpenCV).
     """
     rgb = image[:, :, ::-1] if len(image.shape) == 3 else image
+    rgb = np.ascontiguousarray(rgb)
     face_locations = face_recognition.face_locations(rgb)
     if not face_locations:
         return None, None
@@ -47,7 +48,8 @@ def get_face_crop_and_embedding(
         key=lambda loc: (loc[2] - loc[0]) * (loc[1] - loc[3]),
     )
     crop = image[top:bottom, left:right]
-    encodings = face_recognition.face_encodings(rgb, [(top, right, bottom, left)])
+    # num_jitters=0 evita incompatibilidade com algumas versões do dlib (TypeError em compute_face_descriptor)
+    encodings = face_recognition.face_encodings(rgb, [(top, right, bottom, left)], num_jitters=0)
     if not encodings:
         return crop, None
     return crop, encodings[0]

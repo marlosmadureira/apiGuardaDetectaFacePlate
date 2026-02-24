@@ -128,6 +128,7 @@
       <div class="card step">
       <div class="step-title">2. Câmera ao vivo e captura</div>
       <p style="color:#a9b1d6; font-size:0.9rem; margin-bottom:12px;">Posicione o rosto no quadro e clique em <strong>Capturar rosto</strong>. A foto será enviada para a API, que extrai o rosto e grava o cálculo (embedding) para futura verificação.</p>
+      <p id="chromeHint" style="display:none; color:#f7768e; font-size:0.85rem; margin-bottom:12px; background:#2d202a; padding:10px; border-radius:8px;">No Chrome a câmera exige contexto seguro. Use <strong><a href="http://localhost:8000" style="color:#7aa2f7;">http://localhost:8000</a></strong> em vez de 0.0.0.0:8000.</p>
       <div id="videoWrap">
         <video id="video" autoplay playsinline muted></video>
         <div class="preview-label" id="previewLabel">Iniciar câmera</div>
@@ -242,7 +243,9 @@
         btnCapture.disabled = !currentPersonId;
       } catch (e) {
         previewLabel.textContent = 'Erro ao acessar câmera';
-        showMsg(captureMsg, 'Não foi possível acessar a câmera. Abra a página em http://localhost:8000 (não como arquivo) e aceite a permissão quando o navegador pedir. Erro: ' + (e.message || e.name), 'error');
+        var chromeHint = document.getElementById('chromeHint');
+        if (chromeHint) chromeHint.style.display = 'block';
+        showMsg(captureMsg, 'No Chrome use http://localhost:8000 (não 0.0.0.0:8000). Aceite a permissão da câmera quando o navegador pedir. Erro: ' + (e.message || e.name), 'error');
       }
     });
 
@@ -305,6 +308,11 @@
     });
 
     loadPersons();
+
+    if (location.hostname === '0.0.0.0') {
+      var h = document.getElementById('chromeHint');
+      if (h) { h.style.display = 'block'; }
+    }
   </script>
 </body>
 </html>
