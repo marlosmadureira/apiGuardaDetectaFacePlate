@@ -14,7 +14,7 @@ from app.database import get_db
 from app.models import Person, Vehicle, Authorization
 from app.config import get_settings
 from app.plate_recognizer import recognize_plate_from_image, capture_frame
-from app.face_service import get_face_bbox_and_embedding, compare_face_to_embeddings
+from app.face_service import get_face_bbox_embedding_landmarks, compare_face_to_embeddings
 from app.schemas import AccessCheckResponse
 
 router = APIRouter(prefix="/access", tags=["Controle de acesso"])
@@ -51,6 +51,7 @@ async def check_access(
     person_id = None
     person_name = None
     face_bbox = None
+    face_landmarks = None
     allowed = False
     message_parts = []
 
@@ -67,8 +68,8 @@ async def check_access(
         if not vehicle_authorized and vehicle_plate:
             message_parts.append("Placa não cadastrada.")
 
-    # 2) Rosto: extrai da mesma imagem
-    face_bbox_tuple, embedding = get_face_bbox_and_embedding(img)
+    # 2) Rosto: extrai da mesma imagem (bbox, embedding e landmarks)
+    face_bbox_tuple, embedding, face_landmarks = get_face_bbox_embedding_landmarks(img)
     if face_bbox_tuple:
         face_bbox = list(face_bbox_tuple)
     if embedding is not None:
@@ -156,6 +157,7 @@ async def check_access(
         vehicle_plate=vehicle_plate,
         vehicle_authorized=vehicle_authorized,
         face_bbox=face_bbox,
+        face_landmarks=face_landmarks,
         plate_bbox=plate_bbox,
         message=message,
     )

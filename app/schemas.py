@@ -87,5 +87,6 @@ class AccessCheckResponse(BaseModel):
     vehicle_plate: Optional[str] = None
     vehicle_authorized: Optional[bool] = None
     face_bbox: Optional[List[int]] = None   # [x, y, width, height] rosto detectado
+    face_landmarks: Optional[dict] = None  # regiões: chin, left_eye, right_eye, nose_bridge, etc.; cada uma lista de [x,y]
     plate_bbox: Optional[List[int]] = None  # [x, y, width, height] placa detectada
     message: str

@@ -7,7 +7,7 @@ import base64
 import face_recognition
 import numpy as np
 from pathlib import Path
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict, Any
 from dataclasses import dataclass
 
 
@@ -68,19 +68,45 @@ def get_face_bbox_and_embedding(
     Detecta o maior rosto na imagem, retorna (bbox, embedding).
     bbox: (left, top, width, height) em pixels; embedding 128-d.
     """
+    bbox, emb, _ = get_face_bbox_embedding_landmarks(image)
+    return bbox, emb
+
+
+def get_face_bbox_embedding_landmarks(
+    image: np.ndarray,
+) -> Tuple[
+    Optional[Tuple[int, int, int, int]],
+    Optional[np.ndarray],
+    Optional[Dict[str, List[List[int]]]],
+]:
+    """
+    Detecta o maior rosto na imagem, retorna (bbox, embedding, landmarks).
+    landmarks: dict com chaves chin, left_eyebrow, right_eyebrow, nose_bridge,
+    nose_tip, left_eye, right_eye, top_lip, bottom_lip; valores são listas de [x, y].
+    """
     rgb = image[:, :, ::-1] if len(image.shape) == 3 else image
     rgb = np.ascontiguousarray(rgb)
     face_locations = face_recognition.face_locations(rgb)
     if not face_locations:
-        return None, None
-    top, right, bottom, left = max(
+        return None, None, None
+    face_loc = max(
         face_locations,
         key=lambda loc: (loc[2] - loc[0]) * (loc[1] - loc[3]),
     )
-    encodings = face_recognition.face_encodings(rgb, [(top, right, bottom, left)], num_jitters=0)
-    if not encodings:
-        return (left, top, right - left, bottom - top), None
-    return (left, top, right - left, bottom - top), encodings[0]
+    top, right, bottom, left = face_loc
+    encodings = face_recognition.face_encodings(rgb, [face_loc], num_jitters=0)
+    embedding = encodings[0] if encodings else None
+    bbox = (left, top, right - left, bottom - top)
+
+    landmarks_list = face_recognition.face_landmarks(rgb, [face_loc])
+    landmarks_serializable: Optional[Dict[str, List[List[int]]]] = None
+    if landmarks_list:
+        raw = landmarks_list[0]
+        landmarks_serializable = {}
+        for key, points in raw.items():
+            landmarks_serializable[key] = [[int(p[0]), int(p[1])] for p in points]
+
+    return bbox, embedding, landmarks_serializable
 
 
 def compare_face_to_embeddings(

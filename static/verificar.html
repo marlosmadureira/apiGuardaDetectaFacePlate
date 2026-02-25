@@ -74,6 +74,10 @@
       color: #9ece6a;
       border: 3px solid #9ece6a;
     }
+    .status-box.autorizado-placa {
+      color: #bb9af7;
+      border: 3px solid #bb9af7;
+    }
     .status-box.nao-autorizado {
       color: #f7768e;
       border: 3px solid #f7768e;
@@ -128,7 +132,7 @@
     <button type="button" class="primary" id="btnStart">Iniciar câmera</button>
     <button type="button" id="btnStop" style="display:none;">Parar</button>
   </div>
-  <p class="hint">A verificação é feita a cada 2 segundos. Posicione o rosto e/ou a placa no quadro; a mesma imagem é analisada para face e para placa e comparada com o banco de dados.</p>
+  <p class="hint">A verificação é feita a cada 2 segundos. Quando um rosto é detectado, são exibidos os <strong>pontos de reconhecimento</strong>: contorno do queixo, olhos, nariz, sobrancelhas e boca (linhas e pontos coloridos). O retângulo verde marca o rosto; o azul marca a placa.</p>
   <p class="hint"><a href="/">Cadastro de rosto</a> · <a href="/placas">Cadastro de placas</a> · <a href="/autorizacoes">Autorizações</a></p>
 
   <script>
@@ -142,7 +146,7 @@
     var overlay = document.getElementById('overlay');
     var statusBox = document.getElementById('statusBox');
 
-    function drawBoxes(faceBbox, plateBbox) {
+    function drawBoxes(faceBbox, plateBbox, faceLandmarks) {
       if (!overlay || !video.videoWidth) return;
       var vw = video.videoWidth;
       var vh = video.videoHeight;
@@ -151,6 +155,9 @@
       var scale = Math.max(cw / vw, ch / vh);
       var offsetX = (cw - vw * scale) / 2;
       var offsetY = (ch - vh * scale) / 2;
+      function toDisplayXY(x, y) {
+        return [ offsetX + x * scale, offsetY + y * scale ];
+      }
       function toDisplay(bbox) {
         if (!bbox || bbox.length !== 4) return null;
         var x = bbox[0], y = bbox[1], w = bbox[2], h = bbox[3];
@@ -160,6 +167,43 @@
       overlay.height = ch;
       var ctx = overlay.getContext('2d');
       ctx.clearRect(0, 0, cw, ch);
+
+      if (faceLandmarks && typeof faceLandmarks === 'object') {
+        var colors = {
+          chin: '#9ece6a',
+          left_eyebrow: '#b4f1b4',
+          right_eyebrow: '#b4f1b4',
+          nose_bridge: '#7dcfff',
+          nose_tip: '#7dcfff',
+          left_eye: '#f9e2af',
+          right_eye: '#f9e2af',
+          top_lip: '#f7768e',
+          bottom_lip: '#f7768e'
+        };
+        Object.keys(faceLandmarks).forEach(function(key) {
+          var pts = faceLandmarks[key];
+          if (!pts || pts.length < 2) return;
+          var d = toDisplayXY(pts[0][0], pts[0][1]);
+          ctx.strokeStyle = colors[key] || '#9ece6a';
+          ctx.fillStyle = colors[key] || '#9ece6a';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(d[0], d[1]);
+          for (var i = 1; i < pts.length; i++) {
+            d = toDisplayXY(pts[i][0], pts[i][1]);
+            ctx.lineTo(d[0], d[1]);
+          }
+          if (key === 'chin' || key === 'top_lip' || key === 'bottom_lip') ctx.closePath();
+          ctx.stroke();
+          pts.forEach(function(p) {
+            var d = toDisplayXY(p[0], p[1]);
+            ctx.beginPath();
+            ctx.arc(d[0], d[1], 2.5, 0, Math.PI * 2);
+            ctx.fill();
+          });
+        });
+      }
+
       var faceRect = toDisplay(faceBbox);
       if (faceRect) {
         ctx.strokeStyle = '#9ece6a';
@@ -201,10 +245,13 @@
       statusBox.innerHTML = text + (sub ? '<div class="person-name">' + sub + '</div>' : '');
     }
 
-    function buildDetail(data) {
+    function buildDetail(data, autorizadoPor) {
+      if (autorizadoPor === 'autorizado') return data.person_name ? 'Rosto: ' + data.person_name : '';
+      if (autorizadoPor === 'autorizado-placa') return data.vehicle_plate ? 'Placa: ' + data.vehicle_plate : '';
       var parts = [];
       if (data.person_name) parts.push('Rosto: ' + data.person_name);
       if (data.vehicle_plate) parts.push('Placa: ' + data.vehicle_plate);
+      if (parts.length === 0) parts.push('Nenhum reconhecido');
       return parts.join(' · ');
     }
 
@@ -224,11 +271,13 @@
         fetch(API_BASE + '/access/check', { method: 'POST', body: form })
           .then(function(r) { return r.json(); })
           .then(function(data) {
-            drawBoxes(data.face_bbox || null, data.plate_bbox || null);
-            var detail = buildDetail(data);
+            drawBoxes(data.face_bbox || null, data.plate_bbox || null, data.face_landmarks || null);
             if (data.allowed) {
-              setStatus('autorizado', 'Autorizado', detail);
+              var autorizadoPor = data.person_name ? 'autorizado' : (data.vehicle_plate ? 'autorizado-placa' : 'autorizado');
+              var detail = buildDetail(data, autorizadoPor);
+              setStatus(autorizadoPor, 'Autorizado', detail);
             } else {
+              var detail = buildDetail(data, null);
               setStatus('nao-autorizado', 'Não autorizado', data.message || detail);
             }
           })
