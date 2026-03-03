@@ -84,6 +84,15 @@
     .msg.success { background: #1f3322; color: #9ece6a; }
     .msg.error { background: #2d202a; color: #f7768e; }
     .msg.info { background: #1e2030; color: #7aa2f7; }
+    .msg.duplicate {
+      background: #3d2020;
+      color: #ff9e9e;
+      border: 2px solid #f7768e;
+      font-size: 1.05rem;
+      font-weight: 600;
+      padding: 16px;
+      text-align: center;
+    }
     .person-list { margin-bottom: 16px; }
     .person-list select {
       width: 100%;
@@ -345,7 +354,14 @@
             const err = await r.json().catch(() => ({}));
             const d = err.detail;
             const msg = Array.isArray(d) ? d.map(x => x.msg || x).join(', ') : (d || r.statusText);
-            throw new Error(msg);
+            if (r.status === 409) {
+              const htmlMsg = msg.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+              captureMsg.innerHTML = '<div class="msg duplicate">' + htmlMsg + '</div>';
+            } else {
+              throw new Error(msg);
+            }
+            btnCapture.disabled = false;
+            return;
           }
           const data = await r.json();
           showMsg(captureMsg, data.message + ' Abaixo a foto salva para futura verificação.', 'success');

@@ -8,7 +8,7 @@ ENV PYTHONUNBUFFERED=1 \
 # Dependências de sistema: OpenCV, Tesseract (OCR), dlib/face_recognition
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
@@ -29,6 +29,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app/ ./app/
 COPY main.py .
+COPY static/ ./static/
 
 # Para rodar com câmera no host: docker run --device /dev/video0 ...
 EXPOSE 8000

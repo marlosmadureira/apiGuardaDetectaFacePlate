@@ -75,8 +75,29 @@ async def register_face(
             detail="Nenhum rosto detectado na imagem. Envie uma foto com o rosto visível.",
         )
 
-    result.face_embedding = _embedding_to_str(embedding)
+    # Verificar se este rosto já está cadastrado em outra pessoa
     settings = get_settings()
+    q_others = select(Person.id, Person.name, Person.face_embedding).where(
+        Person.id != person_id,
+        Person.face_embedding.isnot(None),
+        Person.face_embedding != "",
+    )
+    rows_others = (await db.execute(q_others)).all()
+    stored_others = [(r[0], r[1], r[2]) for r in rows_others if r[2]]
+    existing = compare_face_to_embeddings(
+        embedding, stored_others, tolerance=settings.face_tolerance
+    )
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "⚠️ ROSTO JÁ CADASTRADO: Este rosto já pertence a outra pessoa no sistema. "
+                f"Cadastrado como: **{existing.name}** (ID: {existing.person_id}). "
+                "Não é possível cadastrar o mesmo rosto para mais de uma pessoa."
+            ),
+        )
+
+    result.face_embedding = _embedding_to_str(embedding)
     photo_path = save_crop(crop, settings.face_photos_dir, prefix=str(person_id))
     if photo_path:
         result.face_photo_path = photo_path
@@ -166,6 +187,27 @@ async def register_face_from_camera(
         raise HTTPException(
             status_code=400,
             detail="Nenhum rosto detectado no frame. Posicione o rosto na câmera e tente novamente.",
+        )
+
+    # Verificar se este rosto já está cadastrado em outra pessoa
+    q_others = select(Person.id, Person.name, Person.face_embedding).where(
+        Person.id != person_id,
+        Person.face_embedding.isnot(None),
+        Person.face_embedding != "",
+    )
+    rows_others = (await db.execute(q_others)).all()
+    stored_others = [(r[0], r[1], r[2]) for r in rows_others if r[2]]
+    existing = compare_face_to_embeddings(
+        embedding, stored_others, tolerance=settings.face_tolerance
+    )
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "⚠️ ROSTO JÁ CADASTRADO: Este rosto já pertence a outra pessoa no sistema. "
+                f"Cadastrado como: **{existing.name}** (ID: {existing.person_id}). "
+                "Não é possível cadastrar o mesmo rosto para mais de uma pessoa."
+            ),
         )
 
     result.face_embedding = _embedding_to_str(embedding)
