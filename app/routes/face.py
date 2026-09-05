@@ -1,8 +1,8 @@
 """
 Rotas de reconhecimento facial: cadastro (crop + embedding) e verificação (comparação).
 """
+import asyncio
 import os
-import time
 import cv2
 import numpy as np
 from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
@@ -20,23 +20,21 @@ from app.face_service import (
     _embedding_to_str,
     save_crop,
 )
+from app.cache import embedding_cache
 from app.schemas import FaceRegisterResponse, FaceVerifyResponse
 
 router = APIRouter(prefix="/face", tags=["Reconhecimento facial"])
 
 
-def _capture_frame_from_camera(camera_index: int, warmup_seconds: float = 1.0):
-    """Abre a câmera, espera um pouco para ajuste de luz e foco, e retorna um frame."""
+def _sync_capture_frame(camera_index: int, warmup_frames: int = 5):
+    """Abre câmera, descarta frames iniciais para ajuste de AE, retorna um frame. Roda em thread pool."""
     cap = cv2.VideoCapture(camera_index)
     if not cap.isOpened():
-        return None, None
+        return False, None
     try:
-        # Descarta alguns frames e dá tempo da câmera ajustar
-        for _ in range(5):
+        for _ in range(warmup_frames):
             cap.read()
-        time.sleep(warmup_seconds)
-        ret, frame = cap.read()
-        return ret, frame
+        return cap.read()
     finally:
         cap.release()
 
@@ -68,14 +66,15 @@ async def register_face(
     if result is None:
         raise HTTPException(status_code=404, detail="Pessoa não encontrada.")
 
-    crop, embedding = get_face_crop_and_embedding(image)
+    loop = asyncio.get_running_loop()
+    crop, embedding = await loop.run_in_executor(None, get_face_crop_and_embedding, image)
     if embedding is None:
         raise HTTPException(
             status_code=400,
             detail="Nenhum rosto detectado na imagem. Envie uma foto com o rosto visível.",
         )
 
-    # Verificar se este rosto já está cadastrado em outra pessoa
+    # Verifica se este rosto já está cadastrado em outra pessoa
     settings = get_settings()
     q_others = select(Person.id, Person.name, Person.face_embedding).where(
         Person.id != person_id,
@@ -103,6 +102,7 @@ async def register_face(
         result.face_photo_path = photo_path
     await db.commit()
     await db.refresh(result)
+    embedding_cache.invalidate()
 
     return FaceRegisterResponse(
         person_id=result.id,
@@ -127,7 +127,8 @@ async def verify_face(
     if image is None:
         raise HTTPException(status_code=400, detail="Imagem inválida.")
 
-    embedding = embedding_from_image(image)
+    loop = asyncio.get_running_loop()
+    embedding = await loop.run_in_executor(None, embedding_from_image, image)
     if embedding is None:
         return FaceVerifyResponse(
             matched=False,
@@ -135,17 +136,8 @@ async def verify_face(
         )
 
     settings = get_settings()
-    q = select(Person.id, Person.name, Person.face_embedding).where(
-        Person.is_active == True,
-        Person.face_embedding.isnot(None),
-        Person.face_embedding != "",
-    )
-    rows = (await db.execute(q)).all()
-    stored = [(r[0], r[1], r[2]) for r in rows if r[2]]
-
-    match = compare_face_to_embeddings(
-        embedding, stored, tolerance=settings.face_tolerance
-    )
+    stored = await embedding_cache.get_embeddings(db)
+    match = compare_face_to_embeddings(embedding, stored, tolerance=settings.face_tolerance)
     if match:
         return FaceVerifyResponse(
             matched=True,
@@ -171,7 +163,11 @@ async def register_face_from_camera(
     Requer câmera disponível (--device /dev/video0 no Docker).
     """
     settings = get_settings()
-    ret, frame = _capture_frame_from_camera(settings.camera_index)
+    loop = asyncio.get_running_loop()
+
+    ret, frame = await loop.run_in_executor(
+        None, _sync_capture_frame, settings.camera_index
+    )
     if not ret or frame is None:
         raise HTTPException(
             status_code=503,
@@ -182,14 +178,13 @@ async def register_face_from_camera(
     if result is None:
         raise HTTPException(status_code=404, detail="Pessoa não encontrada.")
 
-    crop, embedding = get_face_crop_and_embedding(frame)
+    crop, embedding = await loop.run_in_executor(None, get_face_crop_and_embedding, frame)
     if embedding is None:
         raise HTTPException(
             status_code=400,
             detail="Nenhum rosto detectado no frame. Posicione o rosto na câmera e tente novamente.",
         )
 
-    # Verificar se este rosto já está cadastrado em outra pessoa
     q_others = select(Person.id, Person.name, Person.face_embedding).where(
         Person.id != person_id,
         Person.face_embedding.isnot(None),
@@ -216,6 +211,7 @@ async def register_face_from_camera(
         result.face_photo_path = photo_path
     await db.commit()
     await db.refresh(result)
+    embedding_cache.invalidate()
 
     return FaceRegisterResponse(
         person_id=result.id,
@@ -230,21 +226,19 @@ async def verify_face_from_camera(db: AsyncSession = Depends(get_db)):
     Captura um frame da câmera e verifica se o rosto corresponde a alguma pessoa cadastrada.
     """
     settings = get_settings()
-    ret, frame = _capture_frame_from_camera(settings.camera_index)
+    loop = asyncio.get_running_loop()
+
+    ret, frame = await loop.run_in_executor(
+        None, _sync_capture_frame, settings.camera_index
+    )
     if not ret or frame is None:
         raise HTTPException(status_code=503, detail="Câmera não disponível ou falha ao capturar.")
 
-    embedding = embedding_from_image(frame)
+    embedding = await loop.run_in_executor(None, embedding_from_image, frame)
     if embedding is None:
         return FaceVerifyResponse(matched=False, message="Nenhum rosto detectado.")
 
-    q = select(Person.id, Person.name, Person.face_embedding).where(
-        Person.is_active == True,
-        Person.face_embedding.isnot(None),
-        Person.face_embedding != "",
-    )
-    rows = (await db.execute(q)).all()
-    stored = [(r[0], r[1], r[2]) for r in rows if r[2]]
+    stored = await embedding_cache.get_embeddings(db)
     match = compare_face_to_embeddings(
         embedding, stored, tolerance=settings.face_tolerance
     )

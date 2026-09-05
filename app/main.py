@@ -9,7 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from app.config import get_settings
-from app.database import init_db
+from app.database import init_db, AsyncSessionLocal
+from app.cache import embedding_cache
 from app.routes import (
     plate_router,
     face_router,
@@ -25,10 +26,11 @@ STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
-    # Garante que a pasta de fotos de rosto existe para capturas futuras
-    from pathlib import Path
-    from app.config import get_settings
-    Path(get_settings().face_photos_dir).mkdir(parents=True, exist_ok=True)
+    settings = get_settings()
+    Path(settings.face_photos_dir).mkdir(parents=True, exist_ok=True)
+    embedding_cache._ttl = settings.embedding_cache_ttl
+    async with AsyncSessionLocal() as db:
+        await embedding_cache.get_embeddings(db)
     yield
 
 

@@ -4,6 +4,7 @@ Verificação de acesso. A autorização é sempre de um tipo:
 - Entrada com veículo: verificação facial + placa (autorização com vehicle_id preenchido).
 Nunca exige os dois ao mesmo tempo; ou a pessoa entra a pé ou com aquele veículo.
 """
+import asyncio
 import cv2
 import numpy as np
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
@@ -14,7 +15,12 @@ from app.database import get_db
 from app.models import Person, Vehicle, Authorization
 from app.config import get_settings
 from app.plate_recognizer import recognize_plate_from_image, capture_frame
-from app.face_service import get_face_bbox_embedding_landmarks, compare_face_to_embeddings
+from app.face_service import (
+    get_face_bbox_embedding_landmarks,
+    compare_face_to_embeddings,
+    embedding_from_image,
+)
+from app.cache import embedding_cache
 from app.schemas import AccessCheckResponse
 
 router = APIRouter(prefix="/access", tags=["Controle de acesso"])
@@ -23,6 +29,22 @@ router = APIRouter(prefix="/access", tags=["Controle de acesso"])
 def _decode_image(file_bytes: bytes) -> np.ndarray:
     arr = np.frombuffer(file_bytes, dtype=np.uint8)
     return cv2.imdecode(arr, cv2.IMREAD_COLOR)
+
+
+def _sync_capture_two_frames(camera_index: int):
+    """Captura dois frames da câmera (plate + face). Roda em thread pool."""
+    cap = cv2.VideoCapture(camera_index)
+    if not cap.isOpened():
+        return None, None
+    try:
+        ret1, frame1 = cap.read()
+        ret2, frame2 = cap.read()
+    finally:
+        cap.release()
+    if not ret1 or frame1 is None:
+        return None, None
+    face_frame = frame2 if ret2 and frame2 is not None else frame1
+    return frame1, face_frame
 
 
 @router.post("/check", response_model=AccessCheckResponse)
@@ -45,6 +67,8 @@ async def check_access(
     if img is None:
         return AccessCheckResponse(allowed=False, message="Imagem inválida.")
 
+    loop = asyncio.get_running_loop()
+
     vehicle_plate = None
     vehicle_authorized = None
     plate_bbox = None
@@ -55,8 +79,13 @@ async def check_access(
     allowed = False
     message_parts = []
 
-    # 1) Placa: extrai da própria imagem (câmera ao vivo pode mostrar a placa)
-    result_plate = recognize_plate_from_image(img)
+    # Placa e rosto detectados em paralelo — ambos CPU-pesados, rodam em thread pool
+    result_plate, face_data = await asyncio.gather(
+        loop.run_in_executor(None, recognize_plate_from_image, img),
+        loop.run_in_executor(None, get_face_bbox_embedding_landmarks, img),
+    )
+
+    # 1) Placa
     if result_plate and result_plate.normalized:
         vehicle_plate = result_plate.normalized
         plate_bbox = list(result_plate.bbox) if result_plate.bbox else None
@@ -68,19 +97,13 @@ async def check_access(
         if not vehicle_authorized and vehicle_plate:
             message_parts.append("Placa não cadastrada.")
 
-    # 2) Rosto: extrai da mesma imagem (bbox, embedding e landmarks)
-    face_bbox_tuple, embedding, face_landmarks = get_face_bbox_embedding_landmarks(img)
+    # 2) Rosto
+    face_bbox_tuple, embedding, face_landmarks = face_data
     if face_bbox_tuple:
         face_bbox = list(face_bbox_tuple)
     if embedding is not None:
         settings = get_settings()
-        q = select(Person.id, Person.name, Person.face_embedding).where(
-            Person.is_active == True,
-            Person.face_embedding.isnot(None),
-            Person.face_embedding != "",
-        )
-        rows = (await db.execute(q)).all()
-        stored = [(r[0], r[1], r[2]) for r in rows if r[2]]
+        stored = await embedding_cache.get_embeddings(db)
         match = compare_face_to_embeddings(
             embedding, stored, tolerance=settings.face_tolerance
         )
@@ -94,7 +117,6 @@ async def check_access(
             message_parts.append("Nenhum rosto nem placa detectados.")
 
     # 3) Autorização: a primeira que bater permite (nunca exige rosto E placa juntos)
-    # 3a) Pedestre: só rosto
     if person_id is not None:
         q_ped = select(Authorization).where(
             Authorization.person_id == person_id,
@@ -103,7 +125,6 @@ async def check_access(
         )
         if (await db.execute(q_ped)).first() is not None:
             allowed = True
-    # 3b) Pessoa + veículo: rosto e placa (só se ainda não liberou por pedestre)
     if not allowed and person_id is not None and vehicle_plate is not None:
         q2 = select(Authorization).where(
             Authorization.person_id == person_id,
@@ -118,7 +139,6 @@ async def check_access(
             )
             if (await db.execute(vq)).scalar_one_or_none() is not None:
                 allowed = True
-    # 3c) Só veículo: só placa (não exige rosto)
     if not allowed and vehicle_plate and vehicle_authorized:
         vq = select(Vehicle.id).where(
             Vehicle.plate == vehicle_plate, Vehicle.is_active == True
@@ -171,26 +191,24 @@ async def check_access_from_camera(db: AsyncSession = Depends(get_db)):
     - Rosto + placa: permite se a pessoa tiver autorização para aquele veículo.
     """
     settings = get_settings()
-    cap = cv2.VideoCapture(settings.camera_index)
-    if not cap.isOpened():
+    loop = asyncio.get_running_loop()
+
+    plate_frame, face_frame = await loop.run_in_executor(
+        None, _sync_capture_two_frames, settings.camera_index
+    )
+    if plate_frame is None:
         raise HTTPException(
             status_code=503,
             detail="Câmera não disponível. Use /access/check com upload de imagens.",
         )
-    # Frame 1 - placa (ex.: veículo na frente)
-    ret1, frame1 = cap.read()
-    # Frame 2 - rosto (ex.: motorista)
-    ret2, frame2 = cap.read()
-    cap.release()
-    if not ret1 or frame1 is None:
-        raise HTTPException(status_code=503, detail="Falha ao capturar frame da câmera.")
 
-    # Usar mesmo frame para ambos se só tiver um (piloto)
-    plate_frame = frame1
-    face_frame = frame2 if ret2 and frame2 is not None else frame1
+    # Detecção de placa e embedding em paralelo
+    result_plate, embedding = await asyncio.gather(
+        loop.run_in_executor(None, recognize_plate_from_image, plate_frame),
+        loop.run_in_executor(None, embedding_from_image, face_frame),
+    )
 
     vehicle_plate = None
-    result_plate = recognize_plate_from_image(plate_frame)
     if result_plate and result_plate.normalized:
         vehicle_plate = result_plate.normalized
 
@@ -204,15 +222,8 @@ async def check_access_from_camera(db: AsyncSession = Depends(get_db)):
 
     person_id = None
     person_name = None
-    embedding = embedding_from_image(face_frame)
     if embedding is not None:
-        q = select(Person.id, Person.name, Person.face_embedding).where(
-            Person.is_active == True,
-            Person.face_embedding.isnot(None),
-            Person.face_embedding != "",
-        )
-        rows = (await db.execute(q)).all()
-        stored = [(r[0], r[1], r[2]) for r in rows if r[2]]
+        stored = await embedding_cache.get_embeddings(db)
         match = compare_face_to_embeddings(
             embedding, stored, tolerance=settings.face_tolerance
         )
@@ -222,7 +233,6 @@ async def check_access_from_camera(db: AsyncSession = Depends(get_db)):
 
     allowed = False
     message_parts = []
-    # A primeira que bater permite: pedestre OU pessoa+veículo OU só veículo (nunca os 2 juntos)
     if person_id:
         q_ped = select(Authorization).where(
             Authorization.person_id == person_id,
@@ -258,6 +268,7 @@ async def check_access_from_camera(db: AsyncSession = Depends(get_db)):
             )
             if (await db.execute(q_veh)).first() is not None:
                 allowed = True
+
     if not allowed:
         if not vehicle_plate and not person_name:
             message_parts.append("Placa e rosto não identificados.")
@@ -274,6 +285,7 @@ async def check_access_from_camera(db: AsyncSession = Depends(get_db)):
         message = " ".join(message_parts)
     else:
         message = "Acesso negado."
+
     return AccessCheckResponse(
         allowed=allowed,
         person_id=person_id,

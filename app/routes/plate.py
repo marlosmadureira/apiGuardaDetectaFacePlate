@@ -2,6 +2,7 @@
 Rotas de captura e reconhecimento de placa (câmera ou upload).
 Extrai caracteres e encaminha para endpoint externo configurável.
 """
+import asyncio
 import cv2
 import numpy as np
 import httpx
@@ -25,13 +26,16 @@ async def capture_plate_from_camera():
     e opcionalmente encaminha para um servidor externo.
     """
     settings = get_settings()
-    frame = capture_frame(settings.camera_index)
+    loop = asyncio.get_running_loop()
+
+    frame = await loop.run_in_executor(None, capture_frame, settings.camera_index)
     if frame is None:
         raise HTTPException(
             status_code=503,
             detail="Não foi possível acessar a câmera. Verifique se está conectada e se o Docker tem permissão (--device /dev/video0).",
         )
-    result = recognize_plate_from_image(frame)
+
+    result = await loop.run_in_executor(None, recognize_plate_from_image, frame)
     if result is None:
         return PlateCaptureResponse(
             plate="",
@@ -79,7 +83,9 @@ async def capture_plate_from_upload(file: UploadFile = File(...)):
     image = _decode_image_from_upload(content)
     if image is None:
         raise HTTPException(status_code=400, detail="Imagem inválida.")
-    result = recognize_plate_from_image(image)
+
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, recognize_plate_from_image, image)
     if result is None:
         return PlateCaptureResponse(
             plate="",

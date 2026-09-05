@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     face_tolerance: float = 0.6  # menor = mais rigoroso
     face_embedding_dim: int = 128
     face_photos_dir: str = "data/faces"  # pasta para salvar crops (rosto) para consultas futuras
+    embedding_cache_ttl: int = 60  # segundos — TTL do cache em memória de embeddings
 
     class Config:
         env_file = ".env"
