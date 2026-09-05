@@ -20,9 +20,9 @@ class Settings(BaseSettings):
     # Câmera
     camera_index: int = 0
 
-    # Reconhecimento facial
-    face_tolerance: float = 0.6  # menor = mais rigoroso
-    face_embedding_dim: int = 128
+    # Reconhecimento facial (InsightFace ArcFace 512-d, similaridade coseno)
+    face_tolerance: float = 0.5  # maior = mais rigoroso (similaridade coseno mínima exigida)
+    face_embedding_dim: int = 512
     face_photos_dir: str = "data/faces"  # pasta para salvar crops (rosto) para consultas futuras
     embedding_cache_ttl: int = 60  # segundos — TTL do cache em memória de embeddings
 

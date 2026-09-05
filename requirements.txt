@@ -5,13 +5,20 @@ uvicorn[standard]==0.27.1
 # Visão computacional e câmera
 opencv-python-headless==4.9.0.80
 numpy==1.26.4
-
-# OCR para placas (Tesseract via pytesseract)
-pytesseract==0.3.10
 Pillow>=11.1.0
 
-# Reconhecimento facial (dlib/face_recognition)
-face_recognition==1.3.0
+# Reconhecimento facial — InsightFace (ArcFace, ONNX, sem compilação de C++)
+insightface==0.7.3
+onnxruntime==1.17.1
+
+# Detecção de placa — YOLOv8 nano
+ultralytics==8.1.48
+
+# OCR de placa — EasyOCR (sem dependência de binário do sistema)
+easyocr==1.7.1
+
+# Download de modelos do HuggingFace Hub (usado pelo YOLOv8 plate model)
+huggingface-hub>=0.23.0
 
 # Banco e HTTP
 sqlalchemy==2.0.25

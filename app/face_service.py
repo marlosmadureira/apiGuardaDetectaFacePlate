@@ -1,14 +1,22 @@
 """
-Reconhecimento facial: crop do rosto, geração de embedding (cálculo matemático)
-e comparação com banco para autorização.
+Reconhecimento facial via InsightFace (ArcFace buffalo_sc).
+Embeddings 512-d float32, L2-normalizados; similaridade coseno.
 """
 import os
 import base64
-import face_recognition
+import threading
+import cv2
 import numpy as np
 from pathlib import Path
 from typing import Optional, List, Tuple, Dict, Any
 from dataclasses import dataclass
+
+try:
+    from insightface.app import FaceAnalysis as _FaceAnalysis
+    _INSIGHTFACE_AVAILABLE = True
+except ImportError:
+    _FaceAnalysis = None
+    _INSIGHTFACE_AVAILABLE = False
 
 
 @dataclass
@@ -16,43 +24,59 @@ class FaceMatch:
     """Resultado da comparação com uma pessoa cadastrada."""
     person_id: int
     name: str
-    distance: float
+    distance: float  # similaridade coseno [0,1] — maior = mais parecido
     matched: bool
 
 
+# Singleton thread-safe do modelo InsightFace
+_face_app: Optional[Any] = None
+_face_lock = threading.Lock()
+
+
+def _get_face_app() -> Any:
+    global _face_app
+    if _face_app is None:
+        with _face_lock:
+            if _face_app is None:
+                if not _INSIGHTFACE_AVAILABLE:
+                    raise RuntimeError("insightface não instalado. Execute: pip install insightface onnxruntime")
+                app = _FaceAnalysis(
+                    name="buffalo_sc",
+                    providers=["CPUExecutionProvider"],
+                )
+                app.prepare(ctx_id=0, det_size=(320, 320))
+                _face_app = app
+    return _face_app
+
+
 def _embedding_to_str(embedding: np.ndarray) -> str:
-    """Converte array 128-d para string (armazenar no banco)."""
-    return ",".join(str(float(x)) for x in embedding)
+    """Serializa embedding float32 para base64 ASCII (rápido e compacto)."""
+    return base64.b64encode(embedding.astype(np.float32).tobytes()).decode("ascii")
 
 
 def _str_to_embedding(s: str) -> np.ndarray:
-    """Converte string do banco de volta para array."""
-    return np.array([float(x) for x in s.split(",")], dtype=np.float64)
+    """Deserializa embedding de base64."""
+    raw = base64.b64decode(s)
+    return np.frombuffer(raw, dtype=np.float32).copy()
 
 
 def get_face_crop_and_embedding(
     image: np.ndarray,
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
     """
-    Detecta o maior rosto na imagem, retorna (crop do rosto, embedding 128-d).
-    image: BGR (OpenCV).
+    Detecta o maior rosto na imagem (BGR) e retorna (crop BGR, embedding 512-d float32).
     """
-    rgb = image[:, :, ::-1] if len(image.shape) == 3 else image
-    rgb = np.ascontiguousarray(rgb)
-    face_locations = face_recognition.face_locations(rgb)
-    if not face_locations:
+    app = _get_face_app()
+    rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    faces = app.get(rgb)
+    if not faces:
         return None, None
-    # Maior face (por área)
-    top, right, bottom, left = max(
-        face_locations,
-        key=lambda loc: (loc[2] - loc[0]) * (loc[1] - loc[3]),
-    )
-    crop = image[top:bottom, left:right]
-    # num_jitters=0 evita incompatibilidade com algumas versões do dlib (TypeError em compute_face_descriptor)
-    encodings = face_recognition.face_encodings(rgb, [(top, right, bottom, left)], num_jitters=0)
-    if not encodings:
-        return crop, None
-    return crop, encodings[0]
+    face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
+    x1, y1, x2, y2 = face.bbox.astype(int)
+    x1, y1 = max(0, x1), max(0, y1)
+    x2, y2 = min(image.shape[1], x2), min(image.shape[0], y2)
+    crop = image[y1:y2, x1:x2]
+    return crop, face.embedding.astype(np.float32)
 
 
 def embedding_from_image(image: np.ndarray) -> Optional[np.ndarray]:
@@ -64,10 +88,6 @@ def embedding_from_image(image: np.ndarray) -> Optional[np.ndarray]:
 def get_face_bbox_and_embedding(
     image: np.ndarray,
 ) -> Tuple[Optional[Tuple[int, int, int, int]], Optional[np.ndarray]]:
-    """
-    Detecta o maior rosto na imagem, retorna (bbox, embedding).
-    bbox: (left, top, width, height) em pixels; embedding 128-d.
-    """
     bbox, emb, _ = get_face_bbox_embedding_landmarks(image)
     return bbox, emb
 
@@ -80,59 +100,63 @@ def get_face_bbox_embedding_landmarks(
     Optional[Dict[str, List[List[int]]]],
 ]:
     """
-    Detecta o maior rosto na imagem, retorna (bbox, embedding, landmarks).
-    landmarks: dict com chaves chin, left_eyebrow, right_eyebrow, nose_bridge,
-    nose_tip, left_eye, right_eye, top_lip, bottom_lip; valores são listas de [x, y].
+    Detecta o maior rosto e retorna (bbox, embedding, landmarks).
+    bbox: (x, y, w, h). Landmarks: 5 pontos InsightFace mapeados para dict.
     """
-    rgb = image[:, :, ::-1] if len(image.shape) == 3 else image
-    rgb = np.ascontiguousarray(rgb)
-    face_locations = face_recognition.face_locations(rgb)
-    if not face_locations:
+    app = _get_face_app()
+    rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    faces = app.get(rgb)
+    if not faces:
         return None, None, None
-    face_loc = max(
-        face_locations,
-        key=lambda loc: (loc[2] - loc[0]) * (loc[1] - loc[3]),
-    )
-    top, right, bottom, left = face_loc
-    encodings = face_recognition.face_encodings(rgb, [face_loc], num_jitters=0)
-    embedding = encodings[0] if encodings else None
-    bbox = (left, top, right - left, bottom - top)
 
-    landmarks_list = face_recognition.face_landmarks(rgb, [face_loc])
-    landmarks_serializable: Optional[Dict[str, List[List[int]]]] = None
-    if landmarks_list:
-        raw = landmarks_list[0]
-        landmarks_serializable = {}
-        for key, points in raw.items():
-            landmarks_serializable[key] = [[int(p[0]), int(p[1])] for p in points]
+    face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
+    x1, y1, x2, y2 = face.bbox.astype(int)
+    bbox = (int(x1), int(y1), int(x2 - x1), int(y2 - y1))
+    embedding = face.embedding.astype(np.float32)
 
-    return bbox, embedding, landmarks_serializable
+    # InsightFace fornece 5 keypoints: left_eye, right_eye, nose, left_mouth, right_mouth
+    landmarks: Dict[str, List[List[int]]] = {
+        "left_eye": [], "right_eye": [], "nose_tip": [],
+        "left_mouth": [], "right_mouth": [],
+    }
+    if face.kps is not None:
+        kps = face.kps.astype(int).tolist()
+        keys = ["left_eye", "right_eye", "nose_tip", "left_mouth", "right_mouth"]
+        for i, key in enumerate(keys):
+            if i < len(kps):
+                landmarks[key] = [[kps[i][0], kps[i][1]]]
+
+    return bbox, embedding, landmarks
 
 
 def compare_face_to_embeddings(
     embedding: np.ndarray,
-    stored_embeddings: List[Tuple[int, str, str]],  # (person_id, name, embedding_str)
-    tolerance: float = 0.6,
+    stored_embeddings: List[Tuple[int, str, str]],
+    tolerance: float = 0.5,
 ) -> Optional[FaceMatch]:
     """
-    Compara um embedding com uma lista de (id, nome, embedding_str).
-    Retorna o melhor match se distância < tolerance.
+    Compara embedding com lista de (person_id, name, embedding_str).
+    Usa similaridade coseno — embeddings ArcFace são L2-normalizados,
+    então dot product = cosine similarity. Aceita se similarity >= tolerance.
+    tolerance maior = mais rigoroso (requer maior similaridade).
     """
     best: Optional[FaceMatch] = None
+    norm = np.linalg.norm(embedding)
+    emb_norm = embedding / (norm + 1e-6)
     for person_id, name, emb_str in stored_embeddings:
         try:
             stored = _str_to_embedding(emb_str)
         except Exception:
             continue
-        dist = float(face_recognition.face_distance([stored], embedding)[0])
-        if dist <= tolerance and (best is None or dist < best.distance):
-            best = FaceMatch(person_id=person_id, name=name, distance=dist, matched=True)
+        stored_n = stored / (np.linalg.norm(stored) + 1e-6)
+        similarity = float(np.dot(emb_norm, stored_n))
+        if similarity >= tolerance and (best is None or similarity > best.distance):
+            best = FaceMatch(person_id=person_id, name=name, distance=similarity, matched=True)
     return best
 
 
 def save_crop(crop: np.ndarray, directory: str, prefix: str = "face") -> Optional[str]:
     """Salva o crop em disco; retorna o caminho ou None."""
-    import cv2
     Path(directory).mkdir(parents=True, exist_ok=True)
     path = os.path.join(directory, f"{prefix}_{os.urandom(4).hex()}.jpg")
     if cv2.imwrite(path, crop):
@@ -148,4 +172,4 @@ def embedding_to_base64(embedding: np.ndarray) -> str:
 def base64_to_embedding(b64: str) -> np.ndarray:
     """Decodifica embedding de base64."""
     raw = base64.b64decode(b64)
-    return np.frombuffer(raw, dtype=np.float32)
+    return np.frombuffer(raw, dtype=np.float32).copy()

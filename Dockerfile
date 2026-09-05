@@ -1,11 +1,13 @@
 # Guarda - Controle de acesso (placas + reconhecimento facial)
-# Piloto: rodar local com câmera via --device /dev/video0
+# Fase 2: InsightFace (ArcFace) + YOLOv8 nano + EasyOCR
 FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive
 
-# Dependências de sistema: OpenCV, Tesseract (OCR), dlib/face_recognition
+# Dependências de sistema: OpenCV + libgomp (onnxruntime)
+# Removidos: tesseract-ocr, cmake, build-essential, libopenblas-dev, liblapack-dev
+# (não são mais necessários sem dlib/pytesseract)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     libgl1 \
@@ -13,19 +15,32 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsm6 \
     libxext6 \
     libxrender-dev \
-    tesseract-ocr \
-    tesseract-ocr-por \
-    cmake \
-    build-essential \
-    libopenblas-dev \
-    liblapack-dev \
-    libx11-dev \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Pré-baixar modelos InsightFace (buffalo_sc) para evitar cold-start
+RUN python3 -c "\
+from insightface.app import FaceAnalysis; \
+app = FaceAnalysis(name='buffalo_sc', providers=['CPUExecutionProvider']); \
+app.prepare(ctx_id=0, det_size=(320, 320)); \
+print('InsightFace buffalo_sc pronto.')"
+
+# Pré-baixar modelo YOLOv8 para detecção de placas
+RUN python3 -c "\
+from ultralytics import YOLO; \
+YOLO('hf://keremberke/yolov8n-license-plate-detection/best.pt'); \
+print('YOLOv8 plate model pronto.')"
+
+# Pré-baixar modelos EasyOCR (English OCR)
+RUN python3 -c "\
+import easyocr; \
+easyocr.Reader(['en'], gpu=False, verbose=False); \
+print('EasyOCR pronto.')"
 
 COPY app/ ./app/
 COPY main.py .
