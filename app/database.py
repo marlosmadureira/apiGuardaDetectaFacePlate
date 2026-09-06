@@ -87,12 +87,15 @@ async def init_db():
             except Exception:
                 pass
 
-        # 7. Índice IVFFlat para busca coseno O(log n) em embeddings faciais
+        # 7. Índice HNSW para busca coseno — recall exato, sem configuração de probes
         try:
+            # Remove IVFFlat legado (criado com tabela vazia, centroides ruins)
             await conn.execute(text(
-                "CREATE INDEX IF NOT EXISTS persons_face_embedding_cosine_idx "
-                "ON persons USING ivfflat (face_embedding vector_cosine_ops) "
-                "WITH (lists = 10)"
+                "DROP INDEX IF EXISTS persons_face_embedding_cosine_idx"
+            ))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS persons_face_embedding_hnsw_idx "
+                "ON persons USING hnsw (face_embedding vector_cosine_ops)"
             ))
         except Exception:
-            pass  # Tabela vazia ou pgvector indisponível; índice pode ser criado depois
+            pass  # pgvector indisponível ou tabela vazia

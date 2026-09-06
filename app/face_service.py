@@ -155,6 +155,10 @@ def compare_face_to_embeddings(
     return best
 
 
+import logging as _logging
+_log = _logging.getLogger(__name__)
+
+
 async def find_best_match_pgvector(
     embedding: np.ndarray,
     db: "AsyncSession",
@@ -162,7 +166,7 @@ async def find_best_match_pgvector(
     exclude_person_id: Optional[int] = None,
 ) -> Optional[FaceMatch]:
     """
-    Busca O(log n) no banco usando o índice ivfflat de pgvector.
+    Busca no banco usando índice HNSW de pgvector (recall exato, sem probes).
     Operador <=> = distância coseno; similarity = 1 - distância.
     exclude_person_id: ignora esse ID (útil para checar duplicatas ao cadastrar).
     """
@@ -186,8 +190,10 @@ async def find_best_match_pgvector(
     )
     row = result.first()
     if row is None:
+        _log.info("pgvector: nenhuma pessoa com rosto cadastrado encontrada")
         return None
     person_id, name, similarity = int(row[0]), str(row[1]), float(row[2])
+    _log.info(f"pgvector melhor match: id={person_id} name={name!r} similarity={similarity:.4f} threshold={tolerance}")
     if similarity >= tolerance:
         return FaceMatch(person_id=person_id, name=name, distance=similarity, matched=True)
     return None
