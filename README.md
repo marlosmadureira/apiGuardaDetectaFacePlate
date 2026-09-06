@@ -214,3 +214,4 @@ A câmera usa um breve tempo de ajuste (~1 s) antes de capturar, para melhorar l
 6. Verificar acesso: `POST /access/check` com `plate_image` e `face_image` (arquivos)
 
 Quando for colocar em produção, faça uma nova solicitação para ajustes de ambiente e segurança.
+
