@@ -506,12 +506,13 @@
     }
 
     /* ── Init ── */
-    startCamera();
-    loadPersons();
-
+    // Redireciona automaticamente de 0.0.0.0 para localhost (câmera exige origin seguro)
     if (location.hostname === '0.0.0.0') {
-      document.getElementById('chromeHint').style.display = 'block';
+      location.replace('http://localhost:' + location.port + location.pathname);
+    } else {
+      startCamera();
     }
+    loadPersons();
   </script>
 </body>
 </html>

@@ -402,9 +402,9 @@
       if (wsMode) { stopWsMode(); } else { startWsMode(); }
     });
 
+    // Redireciona automaticamente de 0.0.0.0 para localhost
     if (location.hostname === '0.0.0.0') {
-      var h = document.getElementById('chromeHint');
-      if (h) h.style.display = 'block';
+      location.replace('http://localhost:' + location.port + location.pathname);
     }
   </script>
 </body>

@@ -30,6 +30,9 @@ from app.routes import (
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
+# Headers para evitar cache do browser nas páginas HTML
+_NO_CACHE = {"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"}
+
 # Rate limiter (chave: IP do cliente)
 limiter = Limiter(key_func=get_remote_address)
 
@@ -87,37 +90,35 @@ app.include_router(stream_router)
 app.include_router(cameras_router)
 
 
+def _html(filename: str):
+    """Retorna FileResponse com headers anti-cache para garantir sempre a versão mais recente."""
+    path = STATIC_DIR / filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Página não encontrada")
+    return FileResponse(path, headers=_NO_CACHE)
+
+
 @app.get("/")
 async def root():
-    """Frontend: cadastro de rosto com câmera ao vivo."""
     index = STATIC_DIR / "index.html"
     if index.is_file():
-        return FileResponse(index)
+        return FileResponse(index, headers=_NO_CACHE)
     return {"app": settings.app_name, "docs": "/docs", "health": "/health"}
 
 
 @app.get("/verificar")
 async def verificar_page():
-    path = STATIC_DIR / "verificar.html"
-    if path.is_file():
-        return FileResponse(path)
-    raise HTTPException(status_code=404, detail="Página não encontrada")
+    return _html("verificar.html")
 
 
 @app.get("/autorizacoes")
 async def autorizacoes_page():
-    path = STATIC_DIR / "autorizacoes.html"
-    if path.is_file():
-        return FileResponse(path)
-    raise HTTPException(status_code=404, detail="Página não encontrada")
+    return _html("autorizacoes.html")
 
 
 @app.get("/placas")
 async def placas_page():
-    path = STATIC_DIR / "placas.html"
-    if path.is_file():
-        return FileResponse(path)
-    raise HTTPException(status_code=404, detail="Página não encontrada")
+    return _html("placas.html")
 
 
 @app.get("/health")
