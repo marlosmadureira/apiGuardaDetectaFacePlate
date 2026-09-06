@@ -130,8 +130,9 @@
   <canvas id="canvas"></canvas>
 
   <div class="controls">
-    <button type="button" id="btnStop">Parar câmera</button>
-    <button type="button" id="btnWs">Modo WebSocket</button>
+    <button type="button" class="primary" id="btnStart">Iniciar câmera</button>
+    <button type="button" id="btnStop" style="display:none;">Parar</button>
+    <button type="button" id="btnWs" style="display:none;">Modo WebSocket</button>
   </div>
   <p class="hint">
     <strong>Modo Polling</strong>: verificação a cada 2 s via HTTP.
@@ -362,33 +363,36 @@
       setStatus('verificando', 'Verificando...', 'Polling ativo');
     }
 
-    // ── Iniciar câmera + detecção ─────────────────────────────────────────────
+    // ── Botões ────────────────────────────────────────────────────────────────
 
-    function startCamera() {
+    document.getElementById('btnStart').addEventListener('click', function() {
       setStatus('verificando', 'Abrindo câmera...', '');
       getUserMediaPromise({ video: { facingMode: 'user', width: 640, height: 480 } })
         .then(function(s) {
           stream = s;
           video.srcObject = stream;
-          setStatus('verificando', 'Conectando...', '');
-          // Auto-inicia em modo WebSocket (menor latência)
-          startWsMode();
+          setStatus('verificando', 'Verificando...', 'Aguardando rosto');
+          document.getElementById('btnStart').style.display = 'none';
+          document.getElementById('btnStop').style.display = 'inline-block';
+          btnWs.style.display = 'inline-block';
+          intervalId = setInterval(checkFace, 2000);
         })
         .catch(function(e) {
           setStatus('nao-autorizado', 'Erro câmera', e.message || '');
           var h = document.getElementById('chromeHint');
           if (h) h.style.display = 'block';
         });
-    }
-
-    // ── Botões ────────────────────────────────────────────────────────────────
+    });
 
     document.getElementById('btnStop').addEventListener('click', function() {
       if (wsMode) { wsMode = false; wsBusy = false; if (ws) { ws.close(); ws = null; } }
       if (intervalId) { clearInterval(intervalId); intervalId = null; }
       if (stream) { stream.getTracks().forEach(function(t) { t.stop(); }); stream = null; }
       video.srcObject = null;
-      setStatus('verificando', 'Câmera parada', '');
+      setStatus('verificando', 'Iniciando...', '');
+      document.getElementById('btnStart').style.display = 'inline-block';
+      document.getElementById('btnStop').style.display = 'none';
+      btnWs.style.display = 'none';
       btnWs.textContent = 'Modo WebSocket';
       btnWs.classList.remove('ws-active');
     });
@@ -397,11 +401,9 @@
       if (wsMode) { stopWsMode(); } else { startWsMode(); }
     });
 
-    // ── Init: redireciona 0.0.0.0 → localhost, depois abre câmera ────────────
+    // Redireciona automaticamente de 0.0.0.0 para localhost
     if (location.hostname === '0.0.0.0') {
       location.replace('http://localhost:' + location.port + location.pathname);
-    } else {
-      startCamera();
     }
   </script>
 </body>
