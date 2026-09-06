@@ -1,16 +1,17 @@
 """CRUD de veículos (placas autorizadas)."""
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
+from sqlalchemy import select
 
 from app.database import get_db
-from app.models import Vehicle, Authorization
+from app.models import Vehicle
 from app.schemas import VehicleCreate, VehicleResponse
+from app.auth import require_api_key
 
 router = APIRouter(prefix="/vehicles", tags=["Veículos"])
 
 
-@router.post("", response_model=VehicleResponse)
+@router.post("", response_model=VehicleResponse, dependencies=[Depends(require_api_key)])
 async def create_vehicle(data: VehicleCreate, db: AsyncSession = Depends(get_db)):
     plate_upper = data.plate.upper().strip()
     q = select(Vehicle).where(Vehicle.plate == plate_upper)
@@ -28,7 +29,7 @@ async def create_vehicle(data: VehicleCreate, db: AsyncSession = Depends(get_db)
 async def list_vehicles(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    active_only: bool = Query(True, description="Se True, lista só veículos ativos (não excluídos)"),
+    active_only: bool = Query(True, description="Se True, lista só veículos ativos"),
     db: AsyncSession = Depends(get_db),
 ):
     q = select(Vehicle).offset(skip).limit(limit).order_by(Vehicle.id)
@@ -46,16 +47,13 @@ async def get_vehicle(vehicle_id: int, db: AsyncSession = Depends(get_db)):
     return vehicle
 
 
-@router.delete("/{vehicle_id}", status_code=204)
+@router.delete("/{vehicle_id}", status_code=204, dependencies=[Depends(require_api_key)])
 async def delete_vehicle(vehicle_id: int, db: AsyncSession = Depends(get_db)):
-    """
-    Exclui o veículo e, em cascata, todas as autorizações vinculadas a ele.
-    """
+    """Desativa o veículo (soft delete) — histórico de autorizações preservado."""
     vehicle = await db.get(Vehicle, vehicle_id)
     if vehicle is None:
         raise HTTPException(status_code=404, detail="Veículo não encontrado.")
-    await db.execute(delete(Authorization).where(Authorization.vehicle_id == vehicle_id))
-    await db.delete(vehicle)
+    vehicle.is_active = False
     await db.commit()
     return None
 

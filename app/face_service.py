@@ -155,6 +155,44 @@ def compare_face_to_embeddings(
     return best
 
 
+async def find_best_match_pgvector(
+    embedding: np.ndarray,
+    db: "AsyncSession",
+    tolerance: float = 0.5,
+    exclude_person_id: Optional[int] = None,
+) -> Optional[FaceMatch]:
+    """
+    Busca O(log n) no banco usando o índice ivfflat de pgvector.
+    Operador <=> = distância coseno; similarity = 1 - distância.
+    exclude_person_id: ignora esse ID (útil para checar duplicatas ao cadastrar).
+    """
+    from sqlalchemy import text as _text
+
+    emb_str = "[" + ",".join(f"{float(x):.8f}" for x in embedding) + "]"
+    where_extra = f"AND id != {exclude_person_id}" if exclude_person_id else ""
+
+    result = await db.execute(
+        _text(f"""
+            SELECT id, name,
+                   1.0 - (face_embedding <=> CAST(:emb AS vector)) AS similarity
+            FROM persons
+            WHERE is_active = true
+              AND face_embedding IS NOT NULL
+              {where_extra}
+            ORDER BY face_embedding <=> CAST(:emb AS vector)
+            LIMIT 1
+        """),
+        {"emb": emb_str},
+    )
+    row = result.first()
+    if row is None:
+        return None
+    person_id, name, similarity = int(row[0]), str(row[1]), float(row[2])
+    if similarity >= tolerance:
+        return FaceMatch(person_id=person_id, name=name, distance=similarity, matched=True)
+    return None
+
+
 def save_crop(crop: np.ndarray, directory: str, prefix: str = "face") -> Optional[str]:
     """Salva o crop em disco; retorna o caminho ou None."""
     Path(directory).mkdir(parents=True, exist_ok=True)

@@ -30,5 +30,18 @@ pydantic==2.6.1
 pydantic-settings==2.1.0
 python-multipart==0.0.9
 
+# Rate limiting
+slowapi==0.1.9
+
+# Logging estruturado
+structlog==24.1.0
+
+# Busca vetorial com PostgreSQL (embeddings faciais)
+pgvector==0.2.5
+
+# Testes
+pytest==8.1.1
+pytest-asyncio==0.23.6
+
 # Utilitários
 python-dotenv==1.0.1

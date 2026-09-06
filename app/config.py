@@ -1,4 +1,5 @@
 """Configurações da aplicação."""
+from typing import List
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 
@@ -9,6 +10,11 @@ class Settings(BaseSettings):
     # API
     app_name: str = "Guarda - Controle de Acesso"
     debug: bool = False
+    log_level: str = "INFO"
+
+    # Segurança
+    api_keys: List[str] = []          # vazio = aberto (dev); ex: API_KEYS=key1,key2
+    cors_origins: List[str] = ["*"]   # restringir em produção
 
     # Banco (PostgreSQL)
     database_url: str = "postgresql+asyncpg://guarda:guarda@localhost:5432/guarda"

@@ -1,9 +1,9 @@
 # Guarda - Piloto local (teste com câmera e API)
-# Banco: PostgreSQL. Câmera deixada desconectada; para usar no Linux, descomente "devices" abaixo.
+# Banco: PostgreSQL com extensão pgvector (busca vetorial de embeddings faciais).
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: guarda-postgres
     ports:
       - "5432:5432"
@@ -28,16 +28,18 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://guarda:guarda@postgres:5432/guarda
       - CAMERA_INDEX=0
-      # Encaminhar placa para servidor externo (opcional)
-      # - PLATE_FORWARD_URL=https://seu-servidor.com/placas
-      # - PLATE_FORWARD_ENABLED=true
-      - FACE_TOLERANCE=0.6
+      - FACE_TOLERANCE=0.5
+      # API_KEYS=chave1,chave2  (vazio = aberto em dev)
+      # CORS_ORIGINS=http://localhost:3000,https://meu-site.com
+      # Encaminhar placa para servidor externo (opcional):
+      # PLATE_FORWARD_URL=https://seu-servidor.com/placas
+      # PLATE_FORWARD_ENABLED=true
     volumes:
       - guarda_data:/app/data
     depends_on:
       postgres:
         condition: service_healthy
-    # Câmera: desconectada por padrão. Para usar, descomente:
+    # Câmera: descomente para usar:
     devices:
        - /dev/video0:/dev/video0
     healthcheck:
