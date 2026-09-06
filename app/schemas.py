@@ -1,6 +1,6 @@
 """Schemas Pydantic para request/response."""
-from pydantic import BaseModel, Field
-from typing import Optional, List
+from pydantic import BaseModel, Field, field_validator
+from typing import Optional, List, Any
 from datetime import datetime
 
 
@@ -25,6 +25,15 @@ class PersonResponse(BaseModel):
     document: Optional[str]
     is_active: bool
     created_at: datetime
+    face_embedding: Optional[bool] = None  # True = rosto cadastrado, None = sem rosto
+
+    @field_validator('face_embedding', mode='before')
+    @classmethod
+    def coerce_to_bool(cls, v: Any) -> Optional[bool]:
+        # pgvector Vector(512) retorna list/ndarray — converte para bool para não enviar 512 floats
+        if v is None:
+            return None
+        return True
 
     class Config:
         from_attributes = True
