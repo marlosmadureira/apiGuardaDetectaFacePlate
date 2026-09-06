@@ -1,13 +1,12 @@
 # Guarda - Controle de acesso (placas + reconhecimento facial)
-# Fase 2: InsightFace (ArcFace) + YOLOv8 nano + EasyOCR
+# Fase 4: InsightFace (ArcFace) + YOLOv8 + EasyOCR + WebSocket + Prometheus
 FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive
 
-# Dependências de sistema: OpenCV + libgomp (onnxruntime)
-# Removidos: tesseract-ocr, cmake, build-essential, libopenblas-dev, liblapack-dev
-# (não são mais necessários sem dlib/pytesseract)
+# build-essential/g++: necessário para compilar extensão Cython do insightface
+# libgomp1: exigido pelo onnxruntime
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     libgl1 \
@@ -16,12 +15,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxext6 \
     libxrender-dev \
     libgomp1 \
+    build-essential \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
 
 # Pré-baixar modelos InsightFace (buffalo_sc) para evitar cold-start
 RUN python3 -c "\
