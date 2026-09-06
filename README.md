@@ -202,7 +202,6 @@ Com a API rodando **na sua máquina** (`./scripts/run_local.sh`), a câmera do n
    A captura do rosto (câmera ou upload) é salva em `data/faces/`. Para ver a foto cadastrada: **GET /face/photo/{person_id}** (ex.: abrir no navegador `http://localhost:8000/face/photo/1`).
 
 A câmera usa um breve tempo de ajuste (~1 s) antes de capturar, para melhorar luz e foco. Se der "Câmera não disponível", verifique se outro programa não está usando a webcam e, no Linux, se o usuário tem acesso a `/dev/video0` (ex.: `ls -l /dev/video0`).
-
 ---
 
 ## Teste rápido sem câmera
