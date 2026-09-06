@@ -31,11 +31,14 @@ app = FaceAnalysis(name='buffalo_sc', providers=['CPUExecutionProvider']); \
 app.prepare(ctx_id=0, det_size=(320, 320)); \
 print('InsightFace buffalo_sc pronto.')"
 
-# Pré-baixar modelo YOLOv8 para detecção de placas
+# Pré-baixar modelo YOLOv8 — não-fatal: baixa no primeiro request se falhar aqui
 RUN python3 -c "\
+from huggingface_hub import hf_hub_download; \
+path = hf_hub_download(repo_id='keremberke/yolov8n-license-plate-detection', filename='best.pt', token=False); \
 from ultralytics import YOLO; \
-YOLO('hf://keremberke/yolov8n-license-plate-detection/best.pt'); \
-print('YOLOv8 plate model pronto.')"
+YOLO(path); \
+print('YOLOv8 plate model pronto.')" \
+    || echo "YOLO pre-download ignorado — modelo sera baixado no primeiro uso."
 
 # Pré-baixar modelos EasyOCR (English OCR)
 RUN python3 -c "\

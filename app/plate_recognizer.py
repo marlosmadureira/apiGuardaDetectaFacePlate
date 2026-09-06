@@ -44,7 +44,8 @@ OLD_PLATE_RE = re.compile(r"^[A-Z]{3}[0-9]{4}$")
 MERCOSUL_PLATE_RE = re.compile(r"^[A-Z]{3}[0-9][A-Z][0-9]{2}$")
 
 _OCR_ALLOWLIST = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-YOLO_PLATE_MODEL = "hf://keremberke/yolov8n-license-plate-detection/best.pt"
+_YOLO_HF_REPO = "keremberke/yolov8n-license-plate-detection"
+_YOLO_HF_FILE = "best.pt"
 YOLO_CONFIDENCE = 0.45
 
 # Singletons thread-safe
@@ -62,7 +63,11 @@ def _get_plate_model():
                 if not _YOLO_AVAILABLE:
                     return None
                 try:
-                    _plate_model = _YOLO(YOLO_PLATE_MODEL)
+                    from huggingface_hub import hf_hub_download
+                    local_path = hf_hub_download(
+                        repo_id=_YOLO_HF_REPO, filename=_YOLO_HF_FILE, token=False
+                    )
+                    _plate_model = _YOLO(local_path)
                 except Exception:
                     _plate_model = None
     return _plate_model
