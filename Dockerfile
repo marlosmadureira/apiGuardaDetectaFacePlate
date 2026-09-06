@@ -5,8 +5,9 @@ FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive
 
-# build-essential/g++: necessário para compilar extensão Cython do insightface
-# libgomp1: exigido pelo onnxruntime
+# build-essential/g++: insightface Cython extension
+# libgomp1: onnxruntime
+# ffmpeg: RTSP/RTMP streams via OpenCV CAP_FFMPEG
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     libgl1 \
@@ -17,6 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     build-essential \
     python3-dev \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

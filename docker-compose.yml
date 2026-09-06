@@ -39,9 +39,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    # Câmera: descomente para usar:
+    # Câmeras locais USB/V4L2 (comente as que não existirem no host)
     devices:
-       - /dev/video0:/dev/video0
+      - /dev/video0:/dev/video0
+      - /dev/video1:/dev/video1
+      - /dev/video2:/dev/video2
+      - /dev/video3:/dev/video3
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s

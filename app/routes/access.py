@@ -8,7 +8,7 @@ import asyncio
 import time
 import cv2
 import numpy as np
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, Query, UploadFile, File, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -31,16 +31,15 @@ def _decode_image(file_bytes: bytes) -> np.ndarray:
     return cv2.imdecode(arr, cv2.IMREAD_COLOR)
 
 
-def _sync_capture_two_frames(camera_index: int):
-    """Captura dois frames usando câmera singleton. Roda em thread pool."""
-    from app.camera import get_camera
-    cam = get_camera(camera_index)
-    frame1 = cam.read_frame()
+def _sync_capture_two_frames(camera_id: str):
+    """Captura dois frames do CameraRegistry. Roda em thread pool."""
+    from app.camera import get_registry
+    registry = get_registry()
+    frame1 = registry.read_frame(camera_id)
     if frame1 is None:
         return None, None
-    frame2 = cam.read_frame()
-    face_frame = frame2 if frame2 is not None else frame1
-    return frame1, face_frame
+    frame2 = registry.read_frame(camera_id)
+    return frame1, frame2 if frame2 is not None else frame1
 
 
 async def _log_access(
@@ -199,16 +198,26 @@ async def check_access(
 
 
 @router.post("/check/camera", response_model=AccessCheckResponse)
-async def check_access_from_camera(db: AsyncSession = Depends(get_db)):
+async def check_access_from_camera(
+    camera_id: str = Query(
+        "cam0",
+        description=(
+            "ID da câmera configurada em data/cameras.json. "
+            "Use GET /cameras para listar as disponíveis."
+        ),
+    ),
+    db: AsyncSession = Depends(get_db),
+):
     """
-    Captura da câmera singleton: lê placa e rosto.
+    Verifica acesso a partir de uma câmera configurada no servidor
+    (câmera local USB ou stream RTSP/RTMP).
     """
     t0 = time.monotonic()
     settings = get_settings()
     loop = asyncio.get_running_loop()
 
     plate_frame, face_frame = await loop.run_in_executor(
-        None, _sync_capture_two_frames, settings.camera_index
+        None, _sync_capture_two_frames, camera_id
     )
     if plate_frame is None:
         raise HTTPException(

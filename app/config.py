@@ -23,8 +23,9 @@ class Settings(BaseSettings):
     plate_forward_url: str = ""
     plate_forward_enabled: bool = False
 
-    # Câmera
-    camera_index: int = 0
+    # Câmeras — configuração central via JSON (editável por cliente sem rebuild)
+    cameras_config_path: str = "data/cameras.json"
+    camera_index: int = 0  # câmera padrão (fallback legado)
 
     # Reconhecimento facial (InsightFace ArcFace 512-d, similaridade coseno)
     face_tolerance: float = 0.5  # maior = mais rigoroso (similaridade coseno mínima exigida)

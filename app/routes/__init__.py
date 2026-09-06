@@ -5,6 +5,7 @@ from .vehicles import router as vehicles_router
 from .authorizations import router as authorizations_router
 from .access import router as access_router
 from .stream import router as stream_router
+from .cameras import router as cameras_router
 
 __all__ = [
     "plate_router",
@@ -14,4 +15,5 @@ __all__ = [
     "authorizations_router",
     "access_router",
     "stream_router",
+    "cameras_router",
 ]

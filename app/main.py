@@ -25,6 +25,7 @@ from app.routes import (
     authorizations_router,
     access_router,
     stream_router,
+    cameras_router,
 )
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -43,11 +44,13 @@ async def lifespan(app: FastAPI):
     # Aquecer cache de embeddings na inicialização
     async with AsyncSessionLocal() as db:
         await embedding_cache.get_embeddings(db)
+    # Inicializar registry de câmeras (gera cameras.json padrão se não existir)
+    from app.camera import get_registry
+    get_registry(settings.cameras_config_path)
     yield
-    # Liberar câmera singleton ao encerrar
+    # Liberar todas as câmeras do registry ao encerrar
     try:
-        from app.camera import get_camera
-        get_camera().release()
+        get_registry().release_all()
     except Exception:
         pass
 
@@ -81,6 +84,7 @@ app.include_router(vehicles_router)
 app.include_router(authorizations_router)
 app.include_router(access_router)
 app.include_router(stream_router)
+app.include_router(cameras_router)
 
 
 @app.get("/")
