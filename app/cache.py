@@ -23,7 +23,6 @@ class EmbeddingCache:
                 q = select(Person.id, Person.name, Person.face_embedding).where(
                     Person.is_active == True,
                     Person.face_embedding.isnot(None),
-                    Person.face_embedding != "",
                 )
                 rows = (await db.execute(q)).all()
                 self._data = [(r[0], r[1], r[2]) for r in rows if r[2]]
