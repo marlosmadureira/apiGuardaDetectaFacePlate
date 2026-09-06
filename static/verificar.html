@@ -362,37 +362,33 @@
       setStatus('verificando', 'Verificando...', 'Polling ativo');
     }
 
-    // ── Botões ────────────────────────────────────────────────────────────────
+    // ── Iniciar câmera + detecção ─────────────────────────────────────────────
 
-    document.getElementById('btnStart').addEventListener('click', function() {
+    function startCamera() {
       setStatus('verificando', 'Abrindo câmera...', '');
       getUserMediaPromise({ video: { facingMode: 'user', width: 640, height: 480 } })
         .then(function(s) {
           stream = s;
           video.srcObject = stream;
-          setStatus('verificando', 'Verificando...', 'Aguardando rosto');
-          document.getElementById('btnStart').style.display = 'none';
-          document.getElementById('btnStop').style.display = 'inline-block';
-          btnWs.style.display = 'inline-block';
-          intervalId = setInterval(checkFace, 2000);
+          setStatus('verificando', 'Conectando...', '');
+          // Auto-inicia em modo WebSocket (menor latência)
+          startWsMode();
         })
         .catch(function(e) {
           setStatus('nao-autorizado', 'Erro câmera', e.message || '');
           var h = document.getElementById('chromeHint');
           if (h) h.style.display = 'block';
         });
-    });
+    }
+
+    // ── Botões ────────────────────────────────────────────────────────────────
 
     document.getElementById('btnStop').addEventListener('click', function() {
-      // Encerra WebSocket se estiver ativo
       if (wsMode) { wsMode = false; wsBusy = false; if (ws) { ws.close(); ws = null; } }
       if (intervalId) { clearInterval(intervalId); intervalId = null; }
       if (stream) { stream.getTracks().forEach(function(t) { t.stop(); }); stream = null; }
       video.srcObject = null;
-      setStatus('verificando', 'Iniciando...', '');
-      document.getElementById('btnStart').style.display = 'inline-block';
-      document.getElementById('btnStop').style.display = 'none';
-      btnWs.style.display = 'none';
+      setStatus('verificando', 'Câmera parada', '');
       btnWs.textContent = 'Modo WebSocket';
       btnWs.classList.remove('ws-active');
     });
@@ -401,9 +397,11 @@
       if (wsMode) { stopWsMode(); } else { startWsMode(); }
     });
 
-    // Redireciona automaticamente de 0.0.0.0 para localhost
+    // ── Init: redireciona 0.0.0.0 → localhost, depois abre câmera ────────────
     if (location.hostname === '0.0.0.0') {
       location.replace('http://localhost:' + location.port + location.pathname);
+    } else {
+      startCamera();
     }
   </script>
 </body>
