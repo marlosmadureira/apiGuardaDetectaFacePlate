@@ -109,6 +109,7 @@
     button:hover { opacity: 0.9; }
     button.primary { background: #7aa2f7; color: #1a1b26; }
     button.danger { background: #f7768e; color: #1a1b26; }
+    button.ws-active { background: #9ece6a; color: #1a1b26; }
     a { color: #7aa2f7; }
     .hint { color: #565f89; font-size: 0.85rem; margin-top: 16px; text-align: center; max-width: 480px; }
     #chromeHint { display: none; color: #f7768e; font-size: 0.85rem; margin-bottom: 12px; background: #2d202a; padding: 10px; border-radius: 8px; }
@@ -131,8 +132,13 @@
   <div class="controls">
     <button type="button" class="primary" id="btnStart">Iniciar câmera</button>
     <button type="button" id="btnStop" style="display:none;">Parar</button>
+    <button type="button" id="btnWs" style="display:none;">Modo WebSocket</button>
   </div>
-  <p class="hint">A verificação é feita a cada 2 segundos. Quando um rosto é detectado, são exibidos os <strong>pontos de reconhecimento</strong>: contorno do queixo, olhos, nariz, sobrancelhas e boca (linhas e pontos coloridos). O retângulo verde marca o rosto; o azul marca a placa.</p>
+  <p class="hint">
+    <strong>Modo Polling</strong>: verificação a cada 2 s via HTTP.
+    <strong>Modo WebSocket</strong>: stream contínuo — cada frame é enviado assim que o anterior for processado (backpressure natural, menor latência).
+    Quando um rosto é detectado, são exibidos os pontos de reconhecimento. O retângulo verde marca o rosto; o azul marca a placa.
+  </p>
   <p class="hint"><a href="/">Cadastro de rosto</a> · <a href="/placas">Cadastro de placas</a> · <a href="/autorizacoes">Autorizações</a></p>
 
   <script>
