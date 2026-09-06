@@ -1,6 +1,6 @@
 """
 Guarda - Controle de acesso a veículos e pessoas.
-Fase 3: logging estruturado, rate limiting, CORS configurável, câmera singleton.
+Fase 4: WebSocket ao vivo /ws/verify, métricas Prometheus /metrics.
 """
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.config import get_settings
 from app.database import init_db, AsyncSessionLocal
@@ -23,6 +24,7 @@ from app.routes import (
     vehicles_router,
     authorizations_router,
     access_router,
+    stream_router,
 )
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -53,9 +55,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Guarda - Controle de Acesso",
     description="API: reconhecimento de placas (Brasil/Mercosul) + reconhecimento facial (ArcFace).",
-    version="3.0.0",
+    version="4.0.0",
     lifespan=lifespan,
 )
+
+Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
 # Rate limiting
 app.state.limiter = limiter

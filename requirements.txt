@@ -39,6 +39,9 @@ structlog==24.1.0
 # Busca vetorial com PostgreSQL (embeddings faciais)
 pgvector==0.2.5
 
+# Métricas Prometheus
+prometheus-fastapi-instrumentator==6.1.0
+
 # Testes
 pytest==8.1.1
 pytest-asyncio==0.23.6
