@@ -16,6 +16,34 @@ from app.face_service import get_face_bbox_embedding_landmarks, find_best_match_
 router = APIRouter(prefix="/ws", tags=["Stream WebSocket"])
 
 
+@router.websocket("/detect")
+async def websocket_detect(websocket: WebSocket):
+    """
+    WebSocket leve para detecção de rosto em tempo real (cadastro).
+    Sem acesso ao banco — apenas informa se há rosto no frame e seu bbox.
+    """
+    await websocket.accept()
+    loop = asyncio.get_running_loop()
+    try:
+        while True:
+            data = await websocket.receive_bytes()
+            arr = np.frombuffer(data, dtype=np.uint8)
+            img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            if img is None:
+                await websocket.send_text(json.dumps({"face_detected": False, "face_bbox": None}))
+                continue
+            face_bbox_tuple, _, _ = await loop.run_in_executor(
+                None, get_face_bbox_embedding_landmarks, img
+            )
+            face_bbox = list(face_bbox_tuple) if face_bbox_tuple else None
+            await websocket.send_text(json.dumps({
+                "face_detected": face_bbox is not None,
+                "face_bbox": face_bbox,
+            }))
+    except WebSocketDisconnect:
+        pass
+
+
 def _to_serializable(obj):
     """Converte numpy arrays e estruturas aninhadas para tipos JSON-serializáveis."""
     if isinstance(obj, np.ndarray):

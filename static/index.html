@@ -83,7 +83,31 @@
       border-radius: 50%;
       border: 3px solid rgba(122, 162, 247, 0.7);
       box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+      transition: border-color 0.25s, box-shadow 0.25s;
     }
+    .face-guide.face-ok::before {
+      border-color: rgba(158, 206, 106, 0.95);
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35), 0 0 18px rgba(158, 206, 106, 0.45);
+    }
+
+    /* Status de detecção dentro do bloco de câmera */
+    .detect-status {
+      position: absolute;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.55);
+      backdrop-filter: blur(4px);
+      color: rgba(255,255,255,0.6);
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      padding: 4px 12px;
+      border-radius: 20px;
+      white-space: nowrap;
+      transition: color 0.25s;
+    }
+    .detect-status.ok { color: #9ece6a; }
 
     /* Badge ao vivo */
     .live-badge {
@@ -277,6 +301,7 @@
       <span class="dot"></span> AO VIVO
     </div>
     <div class="cam-msg" id="camMsg">Aguardando câmera...</div>
+    <div class="detect-status" id="detectStatus">Posicione o rosto na moldura</div>
   </div>
 
   <canvas id="canvas"></canvas>
@@ -306,16 +331,67 @@
     let stream = null;
     let cameraReady = false;
 
-    const video    = document.getElementById('video');
-    const canvas   = document.getElementById('canvas');
-    const btnSave  = document.getElementById('btnSave');
-    const feedback = document.getElementById('feedback');
-    const camMsg   = document.getElementById('camMsg');
-    const liveBadge = document.getElementById('liveBadge');
-    const mainForm = document.getElementById('mainForm');
-    const inputName = document.getElementById('inputName');
-    const inputDoc  = document.getElementById('inputDoc');
-    const personList = document.getElementById('personList');
+    const video       = document.getElementById('video');
+    const canvas      = document.getElementById('canvas');
+    const btnSave     = document.getElementById('btnSave');
+    const feedback    = document.getElementById('feedback');
+    const camMsg      = document.getElementById('camMsg');
+    const liveBadge   = document.getElementById('liveBadge');
+    const mainForm    = document.getElementById('mainForm');
+    const inputName   = document.getElementById('inputName');
+    const inputDoc    = document.getElementById('inputDoc');
+    const personList  = document.getElementById('personList');
+    const faceGuide   = document.querySelector('.face-guide');
+    const detectStatus = document.getElementById('detectStatus');
+
+    /* ── Detecção ao vivo (WebSocket /ws/detect) ── */
+    let detectWs = null;
+    let faceDetected = false;
+
+    function startDetection() {
+      if (detectWs) return;
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      detectWs = new WebSocket(proto + '//' + location.host + '/ws/detect');
+      detectWs.binaryType = 'arraybuffer';
+      detectWs.onopen = () => sendDetectFrame();
+      detectWs.onmessage = (e) => {
+        try {
+          const d = JSON.parse(e.data);
+          faceDetected = d.face_detected;
+          if (faceDetected) {
+            faceGuide.classList.add('face-ok');
+            detectStatus.textContent = '✓ Rosto detectado';
+            detectStatus.className = 'detect-status ok';
+          } else {
+            faceGuide.classList.remove('face-ok');
+            detectStatus.textContent = 'Posicione o rosto na moldura';
+            detectStatus.className = 'detect-status';
+          }
+        } catch (_) {}
+        // backpressure: próximo frame após 300ms
+        setTimeout(() => sendDetectFrame(), 300);
+      };
+      detectWs.onclose = () => { detectWs = null; };
+      detectWs.onerror = () => { detectWs = null; };
+    }
+
+    function sendDetectFrame() {
+      if (!detectWs || detectWs.readyState !== WebSocket.OPEN) return;
+      if (!video.videoWidth) return;
+      const c = document.createElement('canvas');
+      c.width = video.videoWidth; c.height = video.videoHeight;
+      const ctx = c.getContext('2d');
+      ctx.save(); ctx.translate(c.width, 0); ctx.scale(-1, 1);
+      ctx.drawImage(video, 0, 0); ctx.restore();
+      c.toBlob(blob => {
+        if (!blob || !detectWs || detectWs.readyState !== WebSocket.OPEN) return;
+        blob.arrayBuffer().then(buf => detectWs.send(buf));
+      }, 'image/jpeg', 0.6);
+    }
+
+    function stopDetection() {
+      if (detectWs) { detectWs.close(); detectWs = null; }
+    }
 
     /* ── Câmera ── */
     function getUserMedia(constraints) {
@@ -336,6 +412,7 @@
           liveBadge.style.display = 'flex';
           btnSave.disabled = false;
           btnSave.textContent = 'Salvar dados';
+          startDetection();
         };
       } catch (e) {
         camMsg.textContent = 'Câmera não acessível. Verifique as permissões.';

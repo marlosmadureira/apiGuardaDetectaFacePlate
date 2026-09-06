@@ -25,7 +25,7 @@ class EmbeddingCache:
                     Person.face_embedding.isnot(None),
                 )
                 rows = (await db.execute(q)).all()
-                self._data = [(r[0], r[1], r[2]) for r in rows if r[2]]
+                self._data = [(r[0], r[1], r[2]) for r in rows if r[2] is not None]
                 self._loaded_at = time.monotonic()
         return self._data
 
