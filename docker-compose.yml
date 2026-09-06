@@ -39,12 +39,14 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    # Câmeras locais USB/V4L2 (comente as que não existirem no host)
+    # Câmeras locais USB/V4L2 — adicione/remova conforme os dispositivos do host.
+    # ATENÇÃO: Docker falha se listar um /dev/videoN que não existe no host.
+    # Para clientes com 4 câmeras, adicionar as linhas correspondentes.
     devices:
       - /dev/video0:/dev/video0
-      - /dev/video1:/dev/video1
-      - /dev/video2:/dev/video2
-      - /dev/video3:/dev/video3
+      # - /dev/video1:/dev/video1
+      # - /dev/video2:/dev/video2   # descomente se existir
+      # - /dev/video3:/dev/video3   # descomente se existir
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s

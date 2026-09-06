@@ -5,383 +5,512 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Guarda – Cadastro de Rosto</title>
   <style>
-    * { box-sizing: border-box; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
     body {
       font-family: 'Segoe UI', system-ui, sans-serif;
-      margin: 0;
-      padding: 24px;
-      background: #1a1b26;
+      background: #0f0f14;
       color: #c0caf5;
       min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px 48px;
     }
-    .container { max-width: 640px; margin: 0 auto; }
-    h1 { color: #7aa2f7; font-size: 1.5rem; margin-bottom: 8px; }
-    .sub { color: #565f89; font-size: 0.9rem; margin-bottom: 24px; }
-    .card {
-      background: #24283b;
-      border-radius: 12px;
-      padding: 24px;
-      margin-bottom: 20px;
-    }
-    label { display: block; margin-bottom: 6px; color: #a9b1d6; font-size: 0.9rem; }
-    input[type="text"], input[type="number"] {
+
+    /* ── Header ── */
+    .header {
       width: 100%;
-      padding: 10px 12px;
-      border: 1px solid #414868;
-      border-radius: 8px;
-      background: #1a1b26;
-      color: #c0caf5;
-      font-size: 1rem;
-      margin-bottom: 16px;
+      max-width: 520px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
     }
-    input:focus { outline: none; border-color: #7aa2f7; }
-    button {
-      padding: 12px 20px;
-      border: none;
+    .header h1 { color: #7aa2f7; font-size: 1.25rem; font-weight: 700; }
+    .header nav { display: flex; gap: 16px; }
+    .header nav a { color: #565f89; font-size: 0.8rem; text-decoration: none; }
+    .header nav a:hover { color: #7aa2f7; }
+
+    /* ── Hint Chrome ── */
+    #chromeHint {
+      display: none;
+      width: 100%;
+      max-width: 520px;
+      background: #2d202a;
+      color: #f7768e;
+      font-size: 0.82rem;
+      padding: 10px 14px;
       border-radius: 8px;
-      font-size: 1rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: opacity 0.2s;
+      margin-bottom: 14px;
     }
-    button:hover { opacity: 0.9; }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-    .btn-primary { background: #7aa2f7; color: #1a1b26; }
-    .btn-success { background: #9ece6a; color: #1a1b26; }
-    .btn-secondary { background: #414868; color: #c0caf5; }
-    #videoWrap {
+
+    /* ── Camera block ── */
+    .camera-block {
+      width: 100%;
+      max-width: 520px;
       position: relative;
       background: #000;
-      border-radius: 12px;
+      border-radius: 16px;
       overflow: hidden;
       aspect-ratio: 4/3;
-      margin-bottom: 16px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      margin-bottom: 20px;
     }
+
     #video {
       width: 100%;
       height: 100%;
       object-fit: cover;
       display: block;
+      transform: scaleX(-1); /* espelho */
     }
-    #canvas { display: none; }
-    .preview-label {
+
+    /* Guia oval de posicionamento do rosto */
+    .face-guide {
       position: absolute;
-      bottom: 12px;
+      inset: 0;
+      pointer-events: none;
+    }
+    .face-guide::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 48%;
+      aspect-ratio: 3/4;
+      border-radius: 50%;
+      border: 3px solid rgba(122, 162, 247, 0.7);
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+    }
+
+    /* Badge ao vivo */
+    .live-badge {
+      position: absolute;
+      top: 12px;
       left: 12px;
-      right: 12px;
+      background: rgba(0,0,0,0.55);
+      color: #9ece6a;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      padding: 4px 10px;
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      backdrop-filter: blur(4px);
+    }
+    .live-badge .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #9ece6a;
+      animation: blink 1.2s infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+    /* Mensagem central na câmera */
+    .cam-msg {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.9rem;
+      color: rgba(255,255,255,0.65);
       text-align: center;
-      color: rgba(255,255,255,0.9);
-      font-size: 0.85rem;
-      text-shadow: 0 1px 2px #000;
+      padding: 20px;
+      background: rgba(0,0,0,0.6);
+      pointer-events: none;
+      transition: opacity 0.3s;
     }
-    .actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
-    .msg {
-      padding: 12px;
-      border-radius: 8px;
-      margin-top: 16px;
-      font-size: 0.95rem;
-    }
-    .msg.success { background: #1f3322; color: #9ece6a; }
-    .msg.error { background: #2d202a; color: #f7768e; }
-    .msg.info { background: #1e2030; color: #7aa2f7; }
-    .msg.duplicate {
-      background: #3d2020;
-      color: #ff9e9e;
-      border: 2px solid #f7768e;
-      font-size: 1.05rem;
-      font-weight: 600;
-      padding: 16px;
-      text-align: center;
-    }
-    .person-list { margin-bottom: 16px; }
-    .person-list select {
+    .cam-msg.hidden { opacity: 0; }
+
+    /* ── Form ── */
+    .form-block {
       width: 100%;
-      padding: 10px 12px;
-      border: 1px solid #414868;
-      border-radius: 8px;
+      max-width: 520px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .field label {
+      display: block;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #a9b1d6;
+      margin-bottom: 6px;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+
+    .field input {
+      width: 100%;
+      padding: 12px 14px;
       background: #1a1b26;
+      border: 1.5px solid #2f3347;
+      border-radius: 10px;
       color: #c0caf5;
       font-size: 1rem;
+      transition: border-color 0.2s;
     }
-    .step { margin-bottom: 28px; }
-    .step-title { font-weight: 600; color: #7aa2f7; margin-bottom: 12px; }
-    .lista h3 { color: #7aa2f7; font-size: 1rem; margin-bottom: 12px; }
-    .item {
-      padding: 10px 12px;
-      background: #1a1b26;
-      border-radius: 8px;
-      margin-bottom: 8px;
+    .field input:focus { outline: none; border-color: #7aa2f7; }
+    .field input::placeholder { color: #414868; }
+
+    /* Botão salvar */
+    #btnSave {
+      width: 100%;
+      padding: 15px;
+      background: #9ece6a;
+      color: #1a1b26;
+      font-size: 1.05rem;
+      font-weight: 700;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      letter-spacing: 0.04em;
+      transition: opacity 0.2s, transform 0.1s;
+      margin-top: 4px;
+    }
+    #btnSave:hover:not(:disabled) { opacity: 0.92; transform: translateY(-1px); }
+    #btnSave:active:not(:disabled) { transform: translateY(0); }
+    #btnSave:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    /* Feedback */
+    .feedback {
+      border-radius: 10px;
+      padding: 12px 16px;
       font-size: 0.9rem;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+      display: none;
     }
-    .item .name { font-weight: 600; color: #9ece6a; }
-    .item .btn-del { margin-left: auto; padding: 6px 12px; font-size: 0.85rem; background: #f7768e; color: #1a1b26; border: none; border-radius: 6px; cursor: pointer; }
-    .item .btn-del:hover { opacity: 0.9; }
-    a { color: #7aa2f7; }
-    #photoPreview { max-width: 100%; border-radius: 8px; margin-top: 12px; }
+    .feedback.show { display: block; }
+    .feedback.success { background: #1f3322; color: #9ece6a; border-left: 3px solid #9ece6a; }
+    .feedback.error   { background: #2d202a; color: #f7768e; border-left: 3px solid #f7768e; }
+    .feedback.info    { background: #1e2030; color: #7aa2f7; border-left: 3px solid #7aa2f7; }
+    .feedback.warn    { background: #3d2020; color: #ff9e9e; border: 2px solid #f7768e; text-align: center; font-weight: 600; }
+
+    /* ── Pessoas cadastradas ── */
+    .people-block {
+      width: 100%;
+      max-width: 520px;
+      margin-top: 32px;
+    }
+    .people-block h2 {
+      color: #565f89;
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #1f2035;
+    }
+    .person-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      background: #1a1b26;
+      border-radius: 10px;
+      margin-bottom: 8px;
+      gap: 12px;
+    }
+    .person-item .info { flex: 1; min-width: 0; }
+    .person-item .pname {
+      font-weight: 600;
+      color: #c0caf5;
+      font-size: 0.95rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .person-item .pdoc { color: #565f89; font-size: 0.8rem; margin-top: 2px; }
+    .person-item .face-tag {
+      font-size: 0.7rem;
+      padding: 2px 8px;
+      border-radius: 20px;
+      background: #1f3322;
+      color: #9ece6a;
+      white-space: nowrap;
+    }
+    .person-item .face-tag.no-face { background: #2d202a; color: #f7768e; }
+    .btn-del {
+      padding: 6px 12px;
+      background: transparent;
+      border: 1px solid #414868;
+      border-radius: 7px;
+      color: #f7768e;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn-del:hover { background: #2d202a; }
+    .empty { color: #414868; font-size: 0.9rem; text-align: center; padding: 20px 0; }
+
+    #canvas { display: none; }
   </style>
 </head>
 <body>
-  <div class="container">
+
+  <header class="header">
     <h1>Guarda – Cadastro de Rosto</h1>
-    <p class="sub">Cadastre sua face pela câmera para futura verificação. <a href="/placas">Cadastro de placas</a> · <a href="/autorizacoes">Autorizações</a> · <a href="/verificar">Verificação de acesso</a></p>
+    <nav>
+      <a href="/verificar">Verificar</a>
+      <a href="/placas">Placas</a>
+      <a href="/autorizacoes">Autorizações</a>
+    </nav>
+  </header>
 
-    <div class="card step">
-      <div class="step-title">1. Pessoa</div>
-      <div id="personSection">
-        <label>Quem está cadastrando o rosto?</label>
-        <div class="person-list">
-          <select id="personSelect">
-            <option value="">Carregando...</option>
-          </select>
-        </div>
-        <p style="color:#565f89; font-size:0.85rem;">Não está na lista? Crie abaixo.</p>
-        <label>Nome</label>
-        <input type="text" id="personName" placeholder="Seu nome">
-        <label>Documento (opcional)</label>
-        <input type="text" id="personDoc" placeholder="CPF ou RG">
-        <div class="actions">
-          <button type="button" class="btn-secondary" id="btnCreatePerson">Criar pessoa</button>
-        </div>
-      </div>
-    </div>
-
-      <div class="card step">
-      <div class="step-title">2. Câmera ao vivo e captura</div>
-      <p style="color:#a9b1d6; font-size:0.9rem; margin-bottom:12px;">Posicione o rosto no quadro e clique em <strong>Capturar rosto</strong>. A foto será enviada para a API, que extrai o rosto e grava o cálculo (embedding) para futura verificação.</p>
-      <p id="chromeHint" style="display:none; color:#f7768e; font-size:0.85rem; margin-bottom:12px; background:#2d202a; padding:10px; border-radius:8px;">No Chrome a câmera exige contexto seguro. Use <strong><a href="http://localhost:8000" style="color:#7aa2f7;">http://localhost:8000</a></strong> em vez de 0.0.0.0:8000.</p>
-      <div id="videoWrap">
-        <video id="video" autoplay playsinline muted></video>
-        <div class="preview-label" id="previewLabel">Iniciar câmera</div>
-      </div>
-      <canvas id="canvas"></canvas>
-      <div class="actions">
-        <button type="button" class="btn-primary" id="btnStartCamera">Iniciar câmera</button>
-        <button type="button" class="btn-success" id="btnCapture" disabled>Capturar rosto</button>
-        <button type="button" class="btn-secondary" id="btnStopCamera" style="display:none;">Parar câmera</button>
-      </div>
-      <div id="captureMsg"></div>
-      <div id="photoResult" style="display:none;">
-        <p style="margin-top:12px;">Foto cadastrada (usada para futura verificação):</p>
-        <img id="photoPreview" alt="Foto do rosto">
-        <p style="margin-top:8px;"><a href="#" id="photoLink" target="_blank">Abrir foto em nova aba</a></p>
-      </div>
-    </div>
-
-    <div class="card">
-      <h3 class="lista">Pessoas cadastradas</h3>
-      <div id="personList">Carregando...</div>
-    </div>
+  <div id="chromeHint">
+    No Chrome, use <strong>http://localhost:8000</strong> (não 0.0.0.0:8000) para permitir acesso à câmera.
   </div>
 
+  <!-- Câmera -->
+  <div class="camera-block">
+    <video id="video" autoplay playsinline muted></video>
+    <div class="face-guide"></div>
+    <div class="live-badge" id="liveBadge" style="display:none;">
+      <span class="dot"></span> AO VIVO
+    </div>
+    <div class="cam-msg" id="camMsg">Aguardando câmera...</div>
+  </div>
+
+  <canvas id="canvas"></canvas>
+
+  <!-- Formulário -->
+  <form class="form-block" id="mainForm" autocomplete="off">
+    <div class="field">
+      <label for="inputName">Nome *</label>
+      <input type="text" id="inputName" placeholder="Nome completo" required maxlength="200">
+    </div>
+    <div class="field">
+      <label for="inputDoc">Documento <span style="font-weight:400;text-transform:none;color:#414868">(opcional)</span></label>
+      <input type="text" id="inputDoc" placeholder="CPF, RG ou Matrícula" maxlength="50">
+    </div>
+    <button type="submit" id="btnSave" disabled>Posicionando câmera...</button>
+    <div class="feedback" id="feedback"></div>
+  </form>
+
+  <!-- Pessoas cadastradas -->
+  <section class="people-block">
+    <h2>Pessoas cadastradas</h2>
+    <div id="personList"><p class="empty">Carregando...</p></div>
+  </section>
+
   <script>
-    const API_BASE = '';
+    const API = '';
     let stream = null;
-    let currentPersonId = null;
+    let cameraReady = false;
 
-    const personSelect = document.getElementById('personSelect');
-    const personName = document.getElementById('personName');
-    const personDoc = document.getElementById('personDoc');
-    const btnCreatePerson = document.getElementById('btnCreatePerson');
-    const video = document.getElementById('video');
-    const canvas = document.getElementById('canvas');
-    const btnStartCamera = document.getElementById('btnStartCamera');
-    const btnCapture = document.getElementById('btnCapture');
-    const btnStopCamera = document.getElementById('btnStopCamera');
-    const previewLabel = document.getElementById('previewLabel');
-    const captureMsg = document.getElementById('captureMsg');
-    const photoResult = document.getElementById('photoResult');
-    const photoPreview = document.getElementById('photoPreview');
+    const video    = document.getElementById('video');
+    const canvas   = document.getElementById('canvas');
+    const btnSave  = document.getElementById('btnSave');
+    const feedback = document.getElementById('feedback');
+    const camMsg   = document.getElementById('camMsg');
+    const liveBadge = document.getElementById('liveBadge');
+    const mainForm = document.getElementById('mainForm');
+    const inputName = document.getElementById('inputName');
+    const inputDoc  = document.getElementById('inputDoc');
+    const personList = document.getElementById('personList');
 
-    const personListEl = document.getElementById('personList');
+    /* ── Câmera ── */
+    function getUserMedia(constraints) {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia)
+        return navigator.mediaDevices.getUserMedia(constraints);
+      const fn = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+      if (!fn) return Promise.reject(new Error('Câmera não disponível'));
+      return new Promise((ok, err) => fn.call(navigator, constraints, ok, err));
+    }
 
-    async function loadPersons() {
+    async function startCamera() {
       try {
-        const r = await fetch(API_BASE + '/persons');
-        if (!r.ok) throw new Error('Falha ao carregar pessoas');
-        const list = await r.json();
-        personSelect.innerHTML = '';
-        personSelect.appendChild(new Option('-- Selecione uma pessoa --', ''));
-        list.forEach(p => {
-          personSelect.appendChild(new Option(p.name + (p.document ? ' (' + p.document + ')' : ''), String(p.id)));
-        });
-        if (list.length === 0) personSelect.innerHTML = '<option value="">Nenhuma pessoa cadastrada</option>';
-
-        if (personListEl) {
-          if (list.length === 0) {
-            personListEl.innerHTML = '<p style="color:#565f89;">Nenhuma pessoa cadastrada.</p>';
-          } else {
-            personListEl.innerHTML = list.map(p => {
-              const desc = p.document ? ' – ' + p.document : '';
-              return '<div class="item" data-id="' + p.id + '">' +
-                '<span><span class="name">' + p.name + '</span>' + desc + '</span>' +
-                '<button type="button" class="btn-del" data-id="' + p.id + '">Excluir</button></div>';
-            }).join('');
-            personListEl.querySelectorAll('.btn-del').forEach(btn => {
-              btn.addEventListener('click', async function() {
-                const id = btn.getAttribute('data-id');
-                if (!id || !confirm('Excluir esta pessoa? As autorizações vinculadas serão desativadas.')) return;
-                try {
-                  const res = await fetch(API_BASE + '/persons/' + id, { method: 'DELETE' });
-                  if (!res.ok) throw new Error(res.statusText);
-                  showMsg(captureMsg, 'Pessoa excluída.', 'success');
-                  if (currentPersonId === parseInt(id, 10)) {
-                    currentPersonId = null;
-                    personSelect.value = '';
-                    btnCapture.disabled = true;
-                  }
-                  await loadPersons();
-                } catch (e) {
-                  showMsg(captureMsg, 'Erro: ' + (e.message || 'Não foi possível excluir.'), 'error');
-                }
-              });
-            });
-          }
-        }
+        stream = await getUserMedia({ video: { facingMode: 'user', width: 640, height: 480 }, audio: false });
+        video.srcObject = stream;
+        video.onloadedmetadata = () => {
+          cameraReady = true;
+          camMsg.classList.add('hidden');
+          liveBadge.style.display = 'flex';
+          btnSave.disabled = false;
+          btnSave.textContent = 'Salvar dados';
+        };
       } catch (e) {
-        personSelect.innerHTML = '<option value="">Erro: ' + e.message + '</option>';
-        if (personListEl) personListEl.innerHTML = '<p style="color:#f7768e;">Erro ao carregar pessoas.</p>';
+        camMsg.textContent = 'Câmera não acessível. Verifique as permissões.';
+        document.getElementById('chromeHint').style.display = 'block';
+        btnSave.textContent = 'Câmera indisponível';
       }
     }
 
-    btnCreatePerson.addEventListener('click', async () => {
-      const name = personName.value.trim();
-      if (!name) {
-        showMsg(captureMsg, 'Digite o nome.', 'error');
+    /* ── Feedback ── */
+    function showFeedback(msg, type) {
+      feedback.className = 'feedback show ' + type;
+      feedback.innerHTML = msg;
+      feedback.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+    function hideFeedback() {
+      feedback.className = 'feedback';
+      feedback.innerHTML = '';
+    }
+
+    /* ── Salvar (criar pessoa + capturar rosto) em um passo ── */
+    mainForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!cameraReady || !stream) {
+        showFeedback('Câmera não está pronta. Aguarde ou recarregue a página.', 'error');
         return;
       }
-      btnCreatePerson.disabled = true;
+      const name = inputName.value.trim();
+      if (!name) {
+        showFeedback('Digite o nome da pessoa.', 'error');
+        inputName.focus();
+        return;
+      }
+      if (!video.videoWidth) {
+        showFeedback('Aguarde a câmera carregar completamente.', 'error');
+        return;
+      }
+
+      btnSave.disabled = true;
+      btnSave.textContent = 'Salvando...';
+      hideFeedback();
+
+      // 1 — captura o frame atual
+      canvas.width  = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      // desfaz o espelho CSS antes de gerar o blob
+      ctx.save();
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, 0, 0);
+      ctx.restore();
+
+      let blob;
       try {
-        const r = await fetch(API_BASE + '/persons', {
+        blob = await new Promise((ok, err) =>
+          canvas.toBlob(b => b ? ok(b) : err(new Error('Falha ao gerar imagem.')), 'image/jpeg', 0.92)
+        );
+      } catch (ex) {
+        showFeedback('Erro ao capturar imagem: ' + ex.message, 'error');
+        btnSave.disabled = false;
+        btnSave.textContent = 'Salvar dados';
+        return;
+      }
+
+      // 2 — cria a pessoa
+      let person;
+      try {
+        const r = await fetch(API + '/persons', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, document: personDoc.value.trim() || null }),
+          body: JSON.stringify({ name, document: inputDoc.value.trim() || null }),
         });
         if (!r.ok) {
           const err = await r.json().catch(() => ({}));
           const d = err.detail;
-          const msg = Array.isArray(d) ? d.map(x => x.msg || x).join(', ') : (d || r.statusText);
-          throw new Error(msg);
+          throw new Error(Array.isArray(d) ? d.map(x => x.msg || x).join(', ') : (d || r.statusText));
         }
-        const person = await r.json();
-        personName.value = '';
-        personDoc.value = '';
-        await loadPersons();
-        personSelect.value = String(person.id);
-        showMsg(captureMsg, 'Pessoa "' + person.name + '" criada. Agora inicie a câmera e capture o rosto.', 'success');
-        captureMsg.style.marginTop = '16px';
-      } catch (e) {
-        showMsg(captureMsg, 'Erro: ' + e.message, 'error');
-      }
-      btnCreatePerson.disabled = false;
-    });
-
-    personSelect.addEventListener('change', () => {
-      currentPersonId = personSelect.value ? parseInt(personSelect.value, 10) : null;
-      btnCapture.disabled = !currentPersonId || !stream;
-    });
-
-    function showMsg(el, text, type) {
-      el.innerHTML = '<div class="msg ' + type + '">' + text + '</div>';
-    }
-
-    function getUserMediaPromise(constraints) {
-      if (navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function')
-        return navigator.mediaDevices.getUserMedia(constraints);
-      var fn = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
-      if (!fn) return Promise.reject(new Error('Câmera não disponível'));
-      return new Promise(function(ok, err) { fn.call(navigator, constraints, ok, err); });
-    }
-
-    btnStartCamera.addEventListener('click', async () => {
-      previewLabel.textContent = 'Abrindo câmera...';
-      try {
-        stream = await getUserMediaPromise({ video: { facingMode: 'user', width: 640, height: 480 } });
-        video.srcObject = stream;
-        previewLabel.textContent = 'Ao vivo – posicione o rosto e clique em Capturar rosto';
-        btnStartCamera.style.display = 'none';
-        btnStopCamera.style.display = 'inline-block';
-        btnCapture.disabled = !currentPersonId;
-      } catch (e) {
-        previewLabel.textContent = 'Erro ao acessar câmera';
-        var chromeHint = document.getElementById('chromeHint');
-        if (chromeHint) chromeHint.style.display = 'block';
-        showMsg(captureMsg, 'No Chrome use http://localhost:8000 (não 0.0.0.0:8000). Aceite a permissão da câmera quando o navegador pedir. Erro: ' + (e.message || e.name), 'error');
-      }
-    });
-
-    btnStopCamera.addEventListener('click', () => {
-      if (stream) {
-        stream.getTracks().forEach(t => t.stop());
-        stream = null;
-      }
-      video.srcObject = null;
-      previewLabel.textContent = 'Iniciar câmera';
-      btnStartCamera.style.display = 'inline-block';
-      btnStopCamera.style.display = 'none';
-      btnCapture.disabled = true;
-    });
-
-    btnCapture.addEventListener('click', async () => {
-      if (!currentPersonId || !stream) return;
-      const w = video.videoWidth;
-      const h = video.videoHeight;
-      if (!w || !h) {
-        showMsg(captureMsg, 'Aguarde a câmera carregar e tente de novo.', 'error');
+        person = await r.json();
+      } catch (ex) {
+        showFeedback('Erro ao criar pessoa: ' + ex.message, 'error');
+        btnSave.disabled = false;
+        btnSave.textContent = 'Salvar dados';
         return;
       }
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(video, 0, 0);
-      canvas.toBlob(async (blob) => {
-        if (!blob) {
-          showMsg(captureMsg, 'Falha ao gerar imagem.', 'error');
+
+      // 3 — registra o rosto
+      try {
+        const form = new FormData();
+        form.append('file', blob, 'capture.jpg');
+        const r2 = await fetch(API + '/face/register/' + person.id, { method: 'POST', body: form });
+        if (!r2.ok) {
+          const err2 = await r2.json().catch(() => ({}));
+          const d2 = err2.detail;
+          const msg2 = Array.isArray(d2) ? d2.map(x => x.msg || x).join(', ') : (d2 || r2.statusText);
+          // Se não detectou rosto, remove a pessoa criada para não deixar registro incompleto
+          await fetch(API + '/persons/' + person.id, { method: 'DELETE' }).catch(() => {});
+          if (r2.status === 409) {
+            showFeedback('⚠ Rosto já cadastrado para outra pessoa. Nenhum dado foi salvo.', 'warn');
+          } else {
+            showFeedback(
+              'Nenhum rosto detectado na imagem. <br>Posicione o rosto dentro da moldura e tente novamente.<br><small style="opacity:.7">' + msg2 + '</small>',
+              'error'
+            );
+          }
+          btnSave.disabled = false;
+          btnSave.textContent = 'Salvar dados';
           return;
         }
-        btnCapture.disabled = true;
-        showMsg(captureMsg, 'Enviando para a API e calculando embedding...', 'info');
-        try {
-          const form = new FormData();
-          form.append('file', blob, 'capture.jpg');
-          const r = await fetch(API_BASE + '/face/register/' + currentPersonId, {
-            method: 'POST',
-            body: form,
-          });
-          if (!r.ok) {
-            const err = await r.json().catch(() => ({}));
-            const d = err.detail;
-            const msg = Array.isArray(d) ? d.map(x => x.msg || x).join(', ') : (d || r.statusText);
-            if (r.status === 409) {
-              const htmlMsg = msg.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-              captureMsg.innerHTML = '<div class="msg duplicate">' + htmlMsg + '</div>';
-            } else {
-              throw new Error(msg);
-            }
-            btnCapture.disabled = false;
-            return;
-          }
-          const data = await r.json();
-          showMsg(captureMsg, data.message + ' Abaixo a foto salva para futura verificação.', 'success');
-          photoResult.style.display = 'block';
-          const photoUrl = API_BASE + '/face/photo/' + currentPersonId;
-          photoPreview.src = photoUrl + '?t=' + Date.now();
-          const photoLink = document.getElementById('photoLink');
-          if (photoLink) { photoLink.href = photoUrl; }
-        } catch (e) {
-          showMsg(captureMsg, 'Erro: ' + e.message, 'error');
-        }
-        btnCapture.disabled = false;
-      }, 'image/jpeg', 0.92);
+        const data2 = await r2.json();
+        showFeedback('✓ <strong>' + name + '</strong> cadastrado com sucesso!', 'success');
+        inputName.value = '';
+        inputDoc.value  = '';
+        await loadPersons();
+      } catch (ex) {
+        // Tenta remover a pessoa órfã
+        await fetch(API + '/persons/' + person.id, { method: 'DELETE' }).catch(() => {});
+        showFeedback('Erro ao registrar rosto: ' + ex.message, 'error');
+      }
+
+      btnSave.disabled = false;
+      btnSave.textContent = 'Salvar dados';
     });
 
+    /* ── Lista de pessoas ── */
+    async function loadPersons() {
+      try {
+        const r = await fetch(API + '/persons');
+        if (!r.ok) throw new Error('Falha ao carregar');
+        const list = await r.json();
+        if (!list.length) {
+          personList.innerHTML = '<p class="empty">Nenhuma pessoa cadastrada ainda.</p>';
+          return;
+        }
+        personList.innerHTML = list.map(p => `
+          <div class="person-item" data-id="${p.id}">
+            <div class="info">
+              <div class="pname">${esc(p.name)}</div>
+              ${p.document ? `<div class="pdoc">${esc(p.document)}</div>` : ''}
+            </div>
+            <span class="face-tag ${p.face_embedding ? '' : 'no-face'}">
+              ${p.face_embedding ? '✓ Rosto' : '✗ Sem rosto'}
+            </span>
+            <button type="button" class="btn-del" data-id="${p.id}">Excluir</button>
+          </div>
+        `).join('');
+        personList.querySelectorAll('.btn-del').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const id = btn.dataset.id;
+            if (!confirm('Excluir esta pessoa e seus dados de acesso?')) return;
+            btn.disabled = true;
+            try {
+              const res = await fetch(API + '/persons/' + id, { method: 'DELETE' });
+              if (!res.ok) throw new Error(res.statusText);
+              await loadPersons();
+            } catch (ex) {
+              alert('Erro ao excluir: ' + ex.message);
+              btn.disabled = false;
+            }
+          });
+        });
+      } catch (ex) {
+        personList.innerHTML = '<p class="empty" style="color:#f7768e">Erro ao carregar pessoas.</p>';
+      }
+    }
+
+    function esc(str) {
+      return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    /* ── Init ── */
+    startCamera();
     loadPersons();
 
     if (location.hostname === '0.0.0.0') {
-      var h = document.getElementById('chromeHint');
-      if (h) { h.style.display = 'block'; }
+      document.getElementById('chromeHint').style.display = 'block';
     }
   </script>
 </body>
