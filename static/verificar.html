@@ -147,10 +147,16 @@
     var intervalId = null;
     var isChecking = false;
 
+    // WebSocket state
+    var ws = null;
+    var wsMode = false;
+    var wsBusy = false;
+
     var video = document.getElementById('video');
     var canvas = document.getElementById('canvas');
     var overlay = document.getElementById('overlay');
     var statusBox = document.getElementById('statusBox');
+    var btnWs = document.getElementById('btnWs');
 
     function drawBoxes(faceBbox, plateBbox, faceLandmarks) {
       if (!overlay || !video.videoWidth) return;
@@ -261,6 +267,18 @@
       return parts.join(' · ');
     }
 
+    function applyResult(data) {
+      drawBoxes(data.face_bbox || null, data.plate_bbox || null, data.face_landmarks || null);
+      if (data.allowed) {
+        var by = data.person_name ? 'autorizado' : (data.vehicle_plate ? 'autorizado-placa' : 'autorizado');
+        setStatus(by, 'Autorizado', buildDetail(data, by));
+      } else {
+        setStatus('nao-autorizado', 'Não autorizado', data.message || buildDetail(data, null));
+      }
+    }
+
+    // ── Modo Polling (HTTP, a cada 2 s) ──────────────────────────────────────
+
     function checkFace() {
       if (!stream || isChecking || !video.videoWidth) return;
       isChecking = true;
@@ -276,23 +294,76 @@
         form.append('face_image', blob, 'frame.jpg');
         fetch(API_BASE + '/access/check', { method: 'POST', body: form })
           .then(function(r) { return r.json(); })
-          .then(function(data) {
-            drawBoxes(data.face_bbox || null, data.plate_bbox || null, data.face_landmarks || null);
-            if (data.allowed) {
-              var autorizadoPor = data.person_name ? 'autorizado' : (data.vehicle_plate ? 'autorizado-placa' : 'autorizado');
-              var detail = buildDetail(data, autorizadoPor);
-              setStatus(autorizadoPor, 'Autorizado', detail);
-            } else {
-              var detail = buildDetail(data, null);
-              setStatus('nao-autorizado', 'Não autorizado', data.message || detail);
-            }
-          })
-          .catch(function(e) {
-            setStatus('nao-autorizado', 'Erro', e.message || 'Sem resposta');
-          })
+          .then(function(data) { applyResult(data); })
+          .catch(function(e) { setStatus('nao-autorizado', 'Erro', e.message || 'Sem resposta'); })
           .finally(function() { isChecking = false; });
       }, 'image/jpeg', 0.85);
     }
+
+    // ── Modo WebSocket (stream contínuo com backpressure) ─────────────────────
+
+    function getWsUrl() {
+      var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      return proto + '//' + location.host + '/ws/verify';
+    }
+
+    function captureAndSendWs() {
+      if (!stream || !video.videoWidth || wsBusy || !ws || ws.readyState !== WebSocket.OPEN) return;
+      wsBusy = true;
+      clearOverlay();
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      canvas.toBlob(function(blob) {
+        if (!blob || !ws || ws.readyState !== WebSocket.OPEN) { wsBusy = false; return; }
+        blob.arrayBuffer().then(function(buf) { ws.send(buf); });
+      }, 'image/jpeg', 0.85);
+    }
+
+    function startWsMode() {
+      if (intervalId) { clearInterval(intervalId); intervalId = null; }
+      isChecking = false;
+      ws = new WebSocket(getWsUrl());
+      ws.binaryType = 'arraybuffer';
+      ws.onopen = function() {
+        wsMode = true;
+        btnWs.textContent = 'Modo Polling';
+        btnWs.classList.add('ws-active');
+        setStatus('verificando', 'WebSocket ativo', 'Aguardando rosto');
+        captureAndSendWs();
+      };
+      ws.onmessage = function(ev) {
+        try { applyResult(JSON.parse(ev.data)); } catch (e) { /* ignora parse error */ }
+        wsBusy = false;
+        // Backpressure: envia próximo frame só após processar o anterior
+        if (wsMode && stream) captureAndSendWs();
+      };
+      ws.onerror = function() {
+        setStatus('nao-autorizado', 'Erro WS', 'Verifique a conexão');
+        wsBusy = false;
+      };
+      ws.onclose = function() {
+        if (wsMode) {
+          wsMode = false;
+          wsBusy = false;
+          btnWs.textContent = 'Modo WebSocket';
+          btnWs.classList.remove('ws-active');
+          setStatus('verificando', 'WS desconectado', 'Use Modo Polling');
+        }
+      };
+    }
+
+    function stopWsMode() {
+      wsMode = false;
+      wsBusy = false;
+      if (ws) { ws.close(); ws = null; }
+      btnWs.textContent = 'Modo WebSocket';
+      btnWs.classList.remove('ws-active');
+      intervalId = setInterval(checkFace, 2000);
+      setStatus('verificando', 'Verificando...', 'Polling ativo');
+    }
+
+    // ── Botões ────────────────────────────────────────────────────────────────
 
     document.getElementById('btnStart').addEventListener('click', function() {
       setStatus('verificando', 'Abrindo câmera...', '');
@@ -303,6 +374,7 @@
           setStatus('verificando', 'Verificando...', 'Aguardando rosto');
           document.getElementById('btnStart').style.display = 'none';
           document.getElementById('btnStop').style.display = 'inline-block';
+          btnWs.style.display = 'inline-block';
           intervalId = setInterval(checkFace, 2000);
         })
         .catch(function(e) {
@@ -313,12 +385,21 @@
     });
 
     document.getElementById('btnStop').addEventListener('click', function() {
+      // Encerra WebSocket se estiver ativo
+      if (wsMode) { wsMode = false; wsBusy = false; if (ws) { ws.close(); ws = null; } }
       if (intervalId) { clearInterval(intervalId); intervalId = null; }
       if (stream) { stream.getTracks().forEach(function(t) { t.stop(); }); stream = null; }
       video.srcObject = null;
       setStatus('verificando', 'Iniciando...', '');
       document.getElementById('btnStart').style.display = 'inline-block';
       document.getElementById('btnStop').style.display = 'none';
+      btnWs.style.display = 'none';
+      btnWs.textContent = 'Modo WebSocket';
+      btnWs.classList.remove('ws-active');
+    });
+
+    btnWs.addEventListener('click', function() {
+      if (wsMode) { stopWsMode(); } else { startWsMode(); }
     });
 
     if (location.hostname === '0.0.0.0') {
