@@ -1,14 +1,13 @@
 """
-Rotas de reconhecimento facial: cadastro (crop + embedding) e verificação (comparação).
+Rotas de reconhecimento facial: cadastro (crop + embedding) e verificação.
+Fase 3: usa pgvector (find_best_match_pgvector) e câmera singleton.
 """
 import asyncio
 import os
-import cv2
 import numpy as np
 from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
 from fastapi.responses import FileResponse
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+import cv2
 
 from app.database import get_db
 from app.models import Person
@@ -16,27 +15,21 @@ from app.config import get_settings
 from app.face_service import (
     get_face_crop_and_embedding,
     embedding_from_image,
-    compare_face_to_embeddings,
-    _embedding_to_str,
+    find_best_match_pgvector,
     save_crop,
 )
-from app.cache import embedding_cache
+from app.auth import require_api_key
 from app.schemas import FaceRegisterResponse, FaceVerifyResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/face", tags=["Reconhecimento facial"])
 
 
-def _sync_capture_frame(camera_index: int, warmup_frames: int = 5):
-    """Abre câmera, descarta frames iniciais para ajuste de AE, retorna um frame. Roda em thread pool."""
-    cap = cv2.VideoCapture(camera_index)
-    if not cap.isOpened():
-        return False, None
-    try:
-        for _ in range(warmup_frames):
-            cap.read()
-        return cap.read()
-    finally:
-        cap.release()
+def _sync_capture_frame(camera_index: int):
+    """Captura frame usando câmera singleton (sem overhead de open/close)."""
+    from app.camera import get_camera
+    frame = get_camera(camera_index).read_frame()
+    return frame is not None, frame
 
 
 def _decode_image(file_bytes: bytes) -> np.ndarray:
@@ -44,7 +37,11 @@ def _decode_image(file_bytes: bytes) -> np.ndarray:
     return cv2.imdecode(arr, cv2.IMREAD_COLOR)
 
 
-@router.post("/register/{person_id}", response_model=FaceRegisterResponse)
+@router.post(
+    "/register/{person_id}",
+    response_model=FaceRegisterResponse,
+    dependencies=[Depends(require_api_key)],
+)
 async def register_face(
     person_id: int,
     file: UploadFile = File(...),
@@ -52,8 +49,8 @@ async def register_face(
 ):
     """
     Cadastra o rosto de uma pessoa já criada em /persons.
-    Envie uma foto com o rosto visível; a API faz o crop, gera o embedding
-    e armazena no banco para comparações futuras.
+    Envie uma foto com o rosto visível; a API faz o crop, gera o embedding ArcFace
+    e armazena no banco (coluna vector(512)) para comparações futuras.
     """
     content = await file.read()
     if not content:
@@ -62,8 +59,8 @@ async def register_face(
     if image is None:
         raise HTTPException(status_code=400, detail="Imagem inválida.")
 
-    result = await db.get(Person, person_id)
-    if result is None:
+    person = await db.get(Person, person_id)
+    if person is None:
         raise HTTPException(status_code=404, detail="Pessoa não encontrada.")
 
     loop = asyncio.get_running_loop()
@@ -71,43 +68,35 @@ async def register_face(
     if embedding is None:
         raise HTTPException(
             status_code=400,
-            detail="Nenhum rosto detectado na imagem. Envie uma foto com o rosto visível.",
+            detail="Nenhum rosto detectado. Envie uma foto com o rosto visível.",
         )
 
-    # Verifica se este rosto já está cadastrado em outra pessoa
     settings = get_settings()
-    q_others = select(Person.id, Person.name, Person.face_embedding).where(
-        Person.id != person_id,
-        Person.face_embedding.isnot(None),
-        Person.face_embedding != "",
-    )
-    rows_others = (await db.execute(q_others)).all()
-    stored_others = [(r[0], r[1], r[2]) for r in rows_others if r[2]]
-    existing = compare_face_to_embeddings(
-        embedding, stored_others, tolerance=settings.face_tolerance
+    # Verifica duplicata: rosto já cadastrado em outra pessoa?
+    existing = await find_best_match_pgvector(
+        embedding, db, tolerance=settings.face_tolerance, exclude_person_id=person_id
     )
     if existing:
         raise HTTPException(
             status_code=409,
             detail=(
-                "⚠️ ROSTO JÁ CADASTRADO: Este rosto já pertence a outra pessoa no sistema. "
-                f"Cadastrado como: **{existing.name}** (ID: {existing.person_id}). "
-                "Não é possível cadastrar o mesmo rosto para mais de uma pessoa."
+                f"⚠️ ROSTO JÁ CADASTRADO: Este rosto pertence a '{existing.name}' "
+                f"(ID: {existing.person_id}). Não é possível cadastrar o mesmo rosto para mais de uma pessoa."
             ),
         )
 
-    result.face_embedding = _embedding_to_str(embedding)
+    # Armazena embedding diretamente como vetor (pgvector cuida da serialização)
+    person.face_embedding = embedding
     photo_path = save_crop(crop, settings.face_photos_dir, prefix=str(person_id))
     if photo_path:
-        result.face_photo_path = photo_path
+        person.face_photo_path = photo_path
     await db.commit()
-    await db.refresh(result)
-    embedding_cache.invalidate()
+    await db.refresh(person)
 
     return FaceRegisterResponse(
-        person_id=result.id,
-        name=result.name,
-        message="Rosto cadastrado com sucesso. Embedding e foto armazenados para comparação.",
+        person_id=person.id,
+        name=person.name,
+        message="Rosto cadastrado com sucesso. Embedding ArcFace armazenado para comparação.",
     )
 
 
@@ -118,7 +107,7 @@ async def verify_face(
 ):
     """
     Verifica se o rosto na imagem corresponde a alguma pessoa cadastrada.
-    Retorna matched=True e dados da pessoa se houver correspondência.
+    Usa busca vetorial indexada (ivfflat) — O(log n).
     """
     content = await file.read()
     if not content:
@@ -130,14 +119,10 @@ async def verify_face(
     loop = asyncio.get_running_loop()
     embedding = await loop.run_in_executor(None, embedding_from_image, image)
     if embedding is None:
-        return FaceVerifyResponse(
-            matched=False,
-            message="Nenhum rosto detectado na imagem.",
-        )
+        return FaceVerifyResponse(matched=False, message="Nenhum rosto detectado na imagem.")
 
     settings = get_settings()
-    stored = await embedding_cache.get_embeddings(db)
-    match = compare_face_to_embeddings(embedding, stored, tolerance=settings.face_tolerance)
+    match = await find_best_match_pgvector(embedding, db, tolerance=settings.face_tolerance)
     if match:
         return FaceVerifyResponse(
             matched=True,
@@ -146,102 +131,85 @@ async def verify_face(
             distance=match.distance,
             message=f"Rosto reconhecido: {match.name}.",
         )
-    return FaceVerifyResponse(
-        matched=False,
-        message="Rosto não reconhecido. Nenhuma correspondência no banco.",
-    )
+    return FaceVerifyResponse(matched=False, message="Rosto não reconhecido.")
 
 
-@router.post("/capture/register/{person_id}", response_model=FaceRegisterResponse)
+@router.post(
+    "/capture/register/{person_id}",
+    response_model=FaceRegisterResponse,
+    dependencies=[Depends(require_api_key)],
+)
 async def register_face_from_camera(
     person_id: int,
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Captura um frame da câmera e cadastra o rosto para a pessoa informada.
-    Salva a foto do rosto para consultas futuras (GET /face/photo/{person_id}).
-    Requer câmera disponível (--device /dev/video0 no Docker).
+    Captura um frame da câmera (singleton persistente) e cadastra o rosto.
     """
     settings = get_settings()
     loop = asyncio.get_running_loop()
 
-    ret, frame = await loop.run_in_executor(
-        None, _sync_capture_frame, settings.camera_index
-    )
+    ret, frame = await loop.run_in_executor(None, _sync_capture_frame, settings.camera_index)
     if not ret or frame is None:
         raise HTTPException(
             status_code=503,
-            detail="Câmera não disponível ou falha ao capturar. Use /face/register com upload de imagem ou verifique o dispositivo.",
+            detail="Câmera não disponível. Use /face/register com upload de imagem.",
         )
 
-    result = await db.get(Person, person_id)
-    if result is None:
+    person = await db.get(Person, person_id)
+    if person is None:
         raise HTTPException(status_code=404, detail="Pessoa não encontrada.")
 
     crop, embedding = await loop.run_in_executor(None, get_face_crop_and_embedding, frame)
     if embedding is None:
         raise HTTPException(
             status_code=400,
-            detail="Nenhum rosto detectado no frame. Posicione o rosto na câmera e tente novamente.",
+            detail="Nenhum rosto detectado. Posicione o rosto na câmera e tente novamente.",
         )
 
-    q_others = select(Person.id, Person.name, Person.face_embedding).where(
-        Person.id != person_id,
-        Person.face_embedding.isnot(None),
-        Person.face_embedding != "",
-    )
-    rows_others = (await db.execute(q_others)).all()
-    stored_others = [(r[0], r[1], r[2]) for r in rows_others if r[2]]
-    existing = compare_face_to_embeddings(
-        embedding, stored_others, tolerance=settings.face_tolerance
+    existing = await find_best_match_pgvector(
+        embedding, db, tolerance=settings.face_tolerance, exclude_person_id=person_id
     )
     if existing:
         raise HTTPException(
             status_code=409,
             detail=(
-                "⚠️ ROSTO JÁ CADASTRADO: Este rosto já pertence a outra pessoa no sistema. "
-                f"Cadastrado como: **{existing.name}** (ID: {existing.person_id}). "
-                "Não é possível cadastrar o mesmo rosto para mais de uma pessoa."
+                f"⚠️ ROSTO JÁ CADASTRADO: Este rosto pertence a '{existing.name}' "
+                f"(ID: {existing.person_id})."
             ),
         )
 
-    result.face_embedding = _embedding_to_str(embedding)
+    person.face_embedding = embedding
     photo_path = save_crop(crop, settings.face_photos_dir, prefix=str(person_id))
     if photo_path:
-        result.face_photo_path = photo_path
+        person.face_photo_path = photo_path
     await db.commit()
-    await db.refresh(result)
-    embedding_cache.invalidate()
+    await db.refresh(person)
 
     return FaceRegisterResponse(
-        person_id=result.id,
-        name=result.name,
-        message="Rosto cadastrado a partir da câmera. Foto salva para consultas futuras.",
+        person_id=person.id,
+        name=person.name,
+        message="Rosto cadastrado a partir da câmera.",
     )
 
 
 @router.post("/capture/verify", response_model=FaceVerifyResponse)
 async def verify_face_from_camera(db: AsyncSession = Depends(get_db)):
     """
-    Captura um frame da câmera e verifica se o rosto corresponde a alguma pessoa cadastrada.
+    Captura da câmera e verifica se o rosto corresponde a alguma pessoa cadastrada.
     """
     settings = get_settings()
     loop = asyncio.get_running_loop()
 
-    ret, frame = await loop.run_in_executor(
-        None, _sync_capture_frame, settings.camera_index
-    )
+    ret, frame = await loop.run_in_executor(None, _sync_capture_frame, settings.camera_index)
     if not ret or frame is None:
-        raise HTTPException(status_code=503, detail="Câmera não disponível ou falha ao capturar.")
+        raise HTTPException(status_code=503, detail="Câmera não disponível.")
 
     embedding = await loop.run_in_executor(None, embedding_from_image, frame)
     if embedding is None:
         return FaceVerifyResponse(matched=False, message="Nenhum rosto detectado.")
 
-    stored = await embedding_cache.get_embeddings(db)
-    match = compare_face_to_embeddings(
-        embedding, stored, tolerance=settings.face_tolerance
-    )
+    match = await find_best_match_pgvector(embedding, db, tolerance=settings.face_tolerance)
     if match:
         return FaceVerifyResponse(
             matched=True,
@@ -250,18 +218,12 @@ async def verify_face_from_camera(db: AsyncSession = Depends(get_db)):
             distance=match.distance,
             message=f"Rosto reconhecido: {match.name}.",
         )
-    return FaceVerifyResponse(
-        matched=False,
-        message="Rosto não reconhecido.",
-    )
+    return FaceVerifyResponse(matched=False, message="Rosto não reconhecido.")
 
 
 @router.get("/photo/{person_id}", response_class=FileResponse)
 async def get_face_photo(person_id: int, db: AsyncSession = Depends(get_db)):
-    """
-    Retorna a foto do rosto cadastrada para a pessoa (captura salva no cadastro).
-    Útil para consultas futuras e conferência.
-    """
+    """Retorna a foto do rosto cadastrada para a pessoa."""
     person = await db.get(Person, person_id)
     if person is None or not person.face_photo_path:
         raise HTTPException(
