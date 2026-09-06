@@ -80,6 +80,7 @@ app.include_router(persons_router)
 app.include_router(vehicles_router)
 app.include_router(authorizations_router)
 app.include_router(access_router)
+app.include_router(stream_router)
 
 
 @app.get("/")
