@@ -240,10 +240,6 @@ def recognize_plate_from_image(image: np.ndarray) -> Optional[PlateResult]:
 
 
 def capture_frame(camera_index: int = 0) -> Optional[np.ndarray]:
-    """Captura um frame da câmera."""
-    cap = cv2.VideoCapture(camera_index)
-    if not cap.isOpened():
-        return None
-    ret, frame = cap.read()
-    cap.release()
-    return frame if ret else None
+    """Captura um frame via câmera singleton (sem overhead de open/close)."""
+    from app.camera import get_camera
+    return get_camera(camera_index).read_frame()

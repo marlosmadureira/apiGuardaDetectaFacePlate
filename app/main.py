@@ -1,16 +1,21 @@
 """
 Guarda - Controle de acesso a veículos e pessoas.
-Piloto: reconhecimento de placa (Brasil/Mercosul) + reconhecimento facial.
+Fase 3: logging estruturado, rate limiting, CORS configurável, câmera singleton.
 """
 from pathlib import Path
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from app.config import get_settings
 from app.database import init_db, AsyncSessionLocal
 from app.cache import embedding_cache
+from app.logging_config import configure_logging
 from app.routes import (
     plate_router,
     face_router,
@@ -22,28 +27,44 @@ from app.routes import (
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
+# Rate limiter (chave: IP do cliente)
+limiter = Limiter(key_func=get_remote_address)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
     settings = get_settings()
+    configure_logging(debug=settings.debug)
+    await init_db()
     Path(settings.face_photos_dir).mkdir(parents=True, exist_ok=True)
     embedding_cache._ttl = settings.embedding_cache_ttl
+    # Aquecer cache de embeddings na inicialização
     async with AsyncSessionLocal() as db:
         await embedding_cache.get_embeddings(db)
     yield
+    # Liberar câmera singleton ao encerrar
+    try:
+        from app.camera import get_camera
+        get_camera().release()
+    except Exception:
+        pass
 
 
 app = FastAPI(
     title="Guarda - Controle de Acesso",
-    description="API piloto: reconhecimento de placas (Brasil/Mercosul) e reconhecimento facial para fluxo de entrada de veículos e pessoas.",
-    version="0.1.0",
+    description="API: reconhecimento de placas (Brasil/Mercosul) + reconhecimento facial (ArcFace).",
+    version="3.0.0",
     lifespan=lifespan,
 )
 
+# Rate limiting
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+settings = get_settings()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -63,16 +84,11 @@ async def root():
     index = STATIC_DIR / "index.html"
     if index.is_file():
         return FileResponse(index)
-    return {
-        "app": get_settings().app_name,
-        "docs": "/docs",
-        "health": "/health",
-    }
+    return {"app": settings.app_name, "docs": "/docs", "health": "/health"}
 
 
 @app.get("/verificar")
 async def verificar_page():
-    """Tela de verificação de acesso: câmera ao vivo e indicação se a pessoa está autorizada."""
     path = STATIC_DIR / "verificar.html"
     if path.is_file():
         return FileResponse(path)
@@ -81,7 +97,6 @@ async def verificar_page():
 
 @app.get("/autorizacoes")
 async def autorizacoes_page():
-    """Tela de cadastro de autorizações: Pedestre, Veículo ou Pedestre e Veículo."""
     path = STATIC_DIR / "autorizacoes.html"
     if path.is_file():
         return FileResponse(path)
@@ -90,7 +105,6 @@ async def autorizacoes_page():
 
 @app.get("/placas")
 async def placas_page():
-    """Tela de cadastro de placas (veículos): lista, formulário e captura pela câmera."""
     path = STATIC_DIR / "placas.html"
     if path.is_file():
         return FileResponse(path)
@@ -99,4 +113,4 @@ async def placas_page():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", "version": "3.0.0"}
